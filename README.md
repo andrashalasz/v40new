@@ -125,7 +125,9 @@ npm run optimize:images
 ```
 app/                 Vue komponensek, oldalak (arculat – változatlan)
 server/api/          meglévő endpointok (blog, termék, orvos, login)
-server/booking/      foglalási motor + tesztek
+server/booking/      foglalási motor
+tests/               tesztek (a server/ alól kikerültek, hogy a Nuxt ne
+                     típusellenőrizze őket)
 prisma/schema.prisma adatmodell (32 modell)
 prisma/seed.ts       kezdőadatok
 scripts/             képoptimalizáló

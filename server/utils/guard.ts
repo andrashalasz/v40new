@@ -1,4 +1,5 @@
 import type { H3Event } from 'h3'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { prisma } from './prisma'
 
 /**
@@ -38,22 +39,25 @@ export async function requireAdmin(event: H3Event) {
   return user
 }
 
-/** Cron endpointok védelme megosztott titokkal (fejléc vagy query). */
+/**
+ * Cron endpointok védelme megosztott titokkal (fejléc vagy query).
+ *
+ * A korábbi változat kézzel írt konstans idejű összehasonlítást használt, ami
+ * kétszeresen is hibás volt: a `padEnd`/`slice` csonkított, és az indexelés
+ * kifutott a rövidebb bufferből. Helyette a Node beépített `timingSafeEqual`-ja
+ * van, sha256 hash-ekre alkalmazva – a hash miatt a két bemenet hossza mindig
+ * egyezik, így a függvény nem dob, és a hossz sem szivárog ki.
+ */
 export function requireCronSecret(event: H3Event) {
   const expected = process.env.CRON_SECRET
   if (!expected) {
     throw createError({ statusCode: 500, statusMessage: 'A CRON_SECRET nincs beállítva.' })
   }
-  const got =
-    getHeader(event, 'x-cron-secret') ?? String(getQuery(event).secret ?? '')
 
-  // Konstans idejű összehasonlítás: hosszalapú kiszivárgás ellen
-  const a = Buffer.from(expected)
-  const b = Buffer.from(got.padEnd(expected.length).slice(0, expected.length))
-  let diff = a.length === b.length ? 0 : 1
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+  const got = getHeader(event, 'x-cron-secret') ?? String(getQuery(event).secret ?? '')
+  const digest = (v: string) => createHash('sha256').update(v).digest()
 
-  if (diff !== 0) {
+  if (!timingSafeEqual(digest(expected), digest(got))) {
     throw createError({ statusCode: 401, statusMessage: 'Érvénytelen titok.' })
   }
 }

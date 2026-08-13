@@ -9,7 +9,7 @@ import {
   toBusyBlocks,
   type AvailabilityInput,
   type WorkingHoursRule,
-} from './availability.ts'
+} from '../../server/booking/availability.ts'
 
 // ---------------------------------------------------------------------------
 //  Segédek
