@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 // ---------------------------------------------------------------------------
 //  Az admin jelszó KÖRNYEZETI VÁLTOZÓBÓL jön.
-//  A korábbi seed a repóba égette be ("AdminPassword123!") – ez minden
+//  A korábbi seed egy fix jelszót égetett a repóba – ez minden
 //  klónozónak megadta volna az admin hozzáférést, ezért így nem maradhat.
 // ---------------------------------------------------------------------------
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
