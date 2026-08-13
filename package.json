@@ -9,7 +9,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "seed": "prisma db seed",
-    "test": "vitest run"
+    "test": "node --experimental-strip-types --test server/booking/*.test.ts",
+    "optimize:images": "node scripts/optimize-images.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

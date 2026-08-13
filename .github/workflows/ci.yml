@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # A foglalási motor tiszta függvény: adatbázis nélkül tesztelhető
+      - name: Foglalási motor tesztjei
+        run: npm test
+
+      # Ugyanaz több időzónában – a szerver rendszer-időzónája nem
+      # befolyásolhatja a naptárat (cPanelen ez tipikusan nem UTC)
+      - name: Időzóna-függetlenség
+        run: |
+          for tz in UTC America/New_York Asia/Tokyo Europe/Budapest Australia/Sydney; do
+            echo "== $tz =="
+            TZ=$tz npm test
+          done
+
+      - name: Prisma séma ellenőrzése
+        run: npx prisma validate
+        env:
+          DATABASE_URL: mysql://user:pass@localhost:3306/v40
