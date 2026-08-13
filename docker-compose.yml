@@ -1,0 +1,44 @@
+version: '3.9'
+
+services:
+  mysql:
+    image: mysql:8.0
+    platform: linux/amd64 # Mac Apple Silicon stabilitás miatt
+    container_name: mysql_dev
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: v40
+      MYSQL_USER: devuser
+      MYSQL_PASSWORD: devpass
+    ports:
+      - "3306:3306"
+    # A --bind-address=0.0.0.0 segít, hogy a konténeren kívülről is elérd
+    command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
+    volumes:
+      - mysql_data:/var/lib/mysql # Ne relatív mappát használj, ha lehet, a teljesítmény miatt
+    networks:
+      - devnet
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: phpmyadmin_dev
+    restart: always
+    depends_on:
+      - mysql
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: root
+    ports:
+      - "9090:80"
+    networks:
+      - devnet
+
+volumes:
+  mysql_data:
+
+networks:
+  devnet:
+    driver: bridge
