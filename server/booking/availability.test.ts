@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeFreeSlots,
+  computeFreeSlotsWithRooms,
   localWallToUtc,
   localPartsOf,
   subtractIntervals,
@@ -349,4 +350,112 @@ test('subtractIntervals: teljes átfedés esetén nem marad semmi', () => {
     [{ start: L('2026-08-03 08:00'), end: L('2026-08-03 18:00') }],
   )
   assert.equal(out.length, 0)
+})
+
+// ---------------------------------------------------------------------------
+//  Szoba-kapacitás
+//  A "szabad-e a szakember?" kérdés nem elég: két ügyfél nem férhet ugyanarra
+//  a kezelőágyra, akkor sem, ha két orvos épp szabad.
+// ---------------------------------------------------------------------------
+
+test('szoba nélkül nincs kapacitás-korlát, a roomId null', () => {
+  const slots = computeFreeSlotsWithRooms(base())
+  assert.equal(slots.length, 29)
+  assert.equal(slots[0].roomId, null)
+})
+
+test('két alkalmas szoba: az egyik foglaltsága nem zárja ki az idősávot', () => {
+  const slots = computeFreeSlotsWithRooms(
+    base({
+      rooms: {
+        eligibleRoomIds: [1, 2],
+        busyByRoom: { 1: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }] },
+      },
+    }),
+  )
+  const at11 = slots.find((s) => hhmm(s.start) === '11:00')
+  assert.ok(at11, 'a 11:00 továbbra is foglalható')
+  assert.equal(at11!.roomId, 2, 'a szabad szobát kapja')
+})
+
+test('minden alkalmas szoba foglalt: nincs idősáv, hiába szabad az orvos', () => {
+  const busy = [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }]
+  const slots = computeFreeSlotsWithRooms(
+    base({ rooms: { eligibleRoomIds: [1, 2], busyByRoom: { 1: busy, 2: busy } } }),
+  )
+  const times = slots.map((s) => hhmm(s.start))
+  assert.ok(!times.includes('11:00'))
+  assert.ok(!times.includes('10:30'), '10:30 + 60 perc belenyúlna')
+  assert.ok(times.includes('10:00'))
+  assert.ok(times.includes('12:00'))
+})
+
+test('a szobakiosztás determinisztikus: az első szabad szoba az elsőbbségi sorrendből', () => {
+  const a = computeFreeSlotsWithRooms(
+    base({ rooms: { eligibleRoomIds: [3, 1, 2], busyByRoom: {} } }),
+  )
+  assert.ok(a.every((s) => s.roomId === 3), 'mindig a lista első szabad eleme')
+
+  const b = computeFreeSlotsWithRooms(
+    base({
+      rooms: {
+        eligibleRoomIds: [3, 1, 2],
+        busyByRoom: { 3: [{ start: L('2026-08-03 00:00'), end: L('2026-08-04 00:00') }] },
+      },
+    }),
+  )
+  assert.ok(b.every((s) => s.roomId === 1), 'a 3-as egész napra foglalt -> az 1-es jön')
+})
+
+test('a szoba pufferét is figyeli, nem csak a nyers foglalást', () => {
+  // A szomszéd foglalás pufferrel kiterjesztett sávja: 10:45-12:15
+  const busy = toBusyBlocks(
+    [
+      {
+        startsAt: L('2026-08-03 11:00'),
+        endsAt: L('2026-08-03 12:00'),
+        bufferBeforeMin: 15,
+        bufferAfterMin: 15,
+        status: 'CONFIRMED',
+      },
+    ],
+    L('2026-08-01 10:00'),
+  )
+  const slots = computeFreeSlotsWithRooms(
+    base({
+      service: { ...base().service, bufferBeforeMin: 15, bufferAfterMin: 15 },
+      rooms: { eligibleRoomIds: [1], busyByRoom: { 1: busy } },
+    }),
+  )
+  const times = slots.map((s) => hhmm(s.start))
+  assert.ok(!times.includes('09:45'), 'a szomszéd előpuffere miatt ütközik')
+  assert.ok(times.includes('09:30'))
+  assert.ok(!times.includes('12:15'))
+  assert.ok(times.includes('12:30'))
+})
+
+test('a szakember és a szoba korlátja együtt érvényesül', () => {
+  const slots = computeFreeSlotsWithRooms(
+    base({
+      // az orvos 11-12 között máshol van
+      busy: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }],
+      // az egyetlen szoba 14-15 között foglalt
+      rooms: {
+        eligibleRoomIds: [1],
+        busyByRoom: { 1: [{ start: L('2026-08-03 14:00'), end: L('2026-08-03 15:00') }] },
+      },
+    }),
+  )
+  const times = slots.map((s) => hhmm(s.start))
+  assert.ok(!times.includes('11:00'), 'orvos foglalt')
+  assert.ok(!times.includes('14:00'), 'szoba foglalt')
+  assert.ok(times.includes('10:00'))
+  assert.ok(times.includes('15:00'))
+})
+
+test('a két belépési pont ugyanazt a jelöltkészletet adja, ha nincs szoba-korlát', () => {
+  const input = base({ busy: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }] })
+  const plain = computeFreeSlots(input).map((d) => d.getTime())
+  const withRooms = computeFreeSlotsWithRooms(input).map((s) => s.start.getTime())
+  assert.deepEqual(plain, withRooms)
 })

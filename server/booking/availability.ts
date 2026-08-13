@@ -51,6 +51,21 @@ export interface ExistingAppointment {
   holdUntil?: Date | null
 }
 
+/** Egy foglalható idősáv, a hozzá kiosztható szobával. */
+export interface Slot {
+  start: Date
+  end: Date
+  /** null, ha a kezeléshez nincs szoba rendelve (nincs kapacitás-korlát) */
+  roomId: number | null
+}
+
+export interface RoomAvailability {
+  /** A kezeléshez alkalmas szobák, elsőbbségi sorrendben. */
+  eligibleRoomIds: number[]
+  /** Szobánként a már lefoglalt sávok (pufferrel kiterjesztve). */
+  busyByRoom: Record<number, Interval[]>
+}
+
 export interface AvailabilityInput {
   from: Date
   to: Date
@@ -67,6 +82,14 @@ export interface AvailabilityInput {
    * Alapértelmezésben hamis: a takarítási puffer túlnyúlhat a záráson.
    */
   requireBuffersInsideHours?: boolean
+  /**
+   * Szoba-kapacitás. Ha megadott és van benne alkalmas szoba, akkor egy idősáv
+   * csak akkor foglalható, ha LEGALÁBB EGY alkalmas szoba szabad rá.
+   *
+   * Enélkül a rendszer csak a szakember idejét figyelné, és két ügyfél
+   * ugyanarra a kezelőágyra kerülhetne.
+   */
+  rooms?: RoomAvailability
 }
 
 // ----------------------------------------------------------------------------
@@ -151,7 +174,12 @@ export function localWallToUtc(
 //  Intervallum-műveletek
 // ----------------------------------------------------------------------------
 
-function overlaps(a: Interval, b: Interval): boolean {
+/**
+ * Két intervallum átlapolódik-e. Az érintkezés NEM átlapolódás: ha egy puffer
+ * pontosan akkor ér véget, amikor a következő foglalás kezdődik, az rendben van.
+ * Exportált, hogy a foglalás-létrehozás ugyanezt használja, ne egy másolatot.
+ */
+export function overlaps(a: Interval, b: Interval): boolean {
   return a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime()
 }
 
@@ -237,12 +265,24 @@ function openWindowsForDay(
 
 // ----------------------------------------------------------------------------
 //  Fő belépési pont
+
+// ----------------------------------------------------------------------------
+//  Jelöltgenerálás
 // ----------------------------------------------------------------------------
 
+interface Candidate {
+  start: Date
+  end: Date
+  /** A szolgáltatás sávja a pufferekkel kiterjesztve – ez foglalja a helyet. */
+  occupied: Interval
+}
+
 /**
- * Visszaadja a foglalható kezdő időpontokat (UTC) a [from, to) intervallumban.
+ * Végigmegy a nyitott rendelési sávokon és kiadja azokat a kezdő időpontokat,
+ * amelyek a SZAKEMBER szempontjából szabadok. A szoba-kapacitást nem vizsgálja
+ * – azt a hívó dönti el, mert két publikus belépési pont osztozik ezen.
  */
-export function computeFreeSlots(input: AvailabilityInput): Date[] {
+function* candidates(input: AvailabilityInput): Generator<Candidate> {
   const {
     from,
     to,
@@ -256,35 +296,28 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
     requireBuffersInsideHours = false,
   } = input
 
-  if (service.durationMin <= 0) return []
-  if (to.getTime() <= from.getTime()) return []
+  if (service.durationMin <= 0) return
+  if (to.getTime() <= from.getTime()) return
 
   // Előjegyzési korlátok
   const earliest = new Date(
-    Math.max(
-      from.getTime(),
-      now.getTime() + service.minLeadTimeHours * 3600_000,
-    ),
+    Math.max(from.getTime(), now.getTime() + service.minLeadTimeHours * 3600_000),
   )
   const latest = new Date(
-    Math.min(
-      to.getTime(),
-      now.getTime() + service.maxLeadTimeDays * 86_400_000,
-    ),
+    Math.min(to.getTime(), now.getTime() + service.maxLeadTimeDays * 86_400_000),
   )
-  if (latest.getTime() <= earliest.getTime()) return []
+  if (latest.getTime() <= earliest.getTime()) return
 
   const cuts = [...timeOff, ...closures, ...busy]
   const durationMs = service.durationMin * 60000
   const stepMs = slotGranularityMin * 60000
-  const results: Date[] = []
 
-  // Végigmegyünk a helyi naptári napokon. Egy nappal korábbról indulunk,
-  // hogy az éjfélen átnyúló nyitvatartás se maradjon ki.
+  // Egy nappal korábbról indulunk, hogy az éjfélen átnyúló nyitvatartás
+  // se maradjon ki.
   let cursor = new Date(earliest.getTime() - 86_400_000)
   const endGuard = latest.getTime() + 86_400_000
-
   const seenDays = new Set<string>()
+  const emitted = new Set<number>()
 
   while (cursor.getTime() <= endGuard) {
     const p = localPartsOf(cursor)
@@ -301,12 +334,10 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
             t + durationMs <= free.end.getTime();
             t += stepMs
           ) {
-            const start = new Date(t)
+            if (t < earliest.getTime() || t > latest.getTime()) continue
+            if (emitted.has(t)) continue
+
             const end = new Date(t + durationMs)
-
-            if (start.getTime() < earliest.getTime()) continue
-            if (start.getTime() > latest.getTime()) continue
-
             const occupied: Interval = {
               start: new Date(t - service.bufferBeforeMin * 60000),
               end: new Date(end.getTime() + service.bufferAfterMin * 60000),
@@ -324,7 +355,8 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
             // (A `free` szakasz csak a szolgáltatás hosszát garantálja.)
             if (cuts.some((c) => overlaps(occupied, c))) continue
 
-            results.push(start)
+            emitted.add(t)
+            yield { start: new Date(t), end, occupied }
           }
         }
       }
@@ -332,8 +364,48 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
 
     cursor = new Date(cursor.getTime() + 86_400_000)
   }
+}
 
-  // Dedup + rendezés (átnyúló sávok miatt lehet ismétlés)
-  const unique = [...new Set(results.map((d) => d.getTime()))].sort((a, b) => a - b)
-  return unique.map((t) => new Date(t))
+// ----------------------------------------------------------------------------
+//  Publikus belépési pontok
+// ----------------------------------------------------------------------------
+
+/**
+ * A szakember szempontjából szabad kezdő időpontok (UTC), rendezve.
+ * Szoba-kapacitást NEM vizsgál.
+ */
+export function computeFreeSlots(input: AvailabilityInput): Date[] {
+  const out = [...candidates(input)].map((c) => c.start.getTime())
+  return [...new Set(out)].sort((a, b) => a - b).map((t) => new Date(t))
+}
+
+/**
+ * Foglalható idősávok a hozzájuk kiosztott szobával.
+ *
+ * Ha a kezeléshez van alkalmas szoba, akkor egy idősáv csak akkor kerül be, ha
+ * legalább egy szoba szabad rá – és a válasz meg is mondja, melyik. A hold
+ * létrehozásakor ugyanezt a szobát rögzítjük, tranzakcióban újraellenőrizve.
+ *
+ * A szoba kiválasztása determinisztikus (az eligibleRoomIds sorrendjében az
+ * első szabad), hogy a foglalások ne szóródjanak szét feleslegesen.
+ */
+export function computeFreeSlotsWithRooms(input: AvailabilityInput): Slot[] {
+  const eligible = input.rooms?.eligibleRoomIds ?? []
+  const busyByRoom = input.rooms?.busyByRoom ?? {}
+  const out: Slot[] = []
+
+  for (const c of candidates(input)) {
+    if (eligible.length === 0) {
+      // Nincs szoba-korlát: csak a szakember ideje számít.
+      out.push({ start: c.start, end: c.end, roomId: null })
+      continue
+    }
+
+    const roomId = eligible.find(
+      (id) => !(busyByRoom[id] ?? []).some((b) => overlaps(c.occupied, b)),
+    )
+    if (roomId !== undefined) out.push({ start: c.start, end: c.end, roomId })
+  }
+
+  return out.sort((a, b) => a.start.getTime() - b.start.getTime())
 }

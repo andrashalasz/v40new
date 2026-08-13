@@ -264,6 +264,12 @@ model Appointment {
   // lemondott idősávot.) Az átlapolódás-vizsgálat emellett tranzakcióban fut.
   slotLock String? @unique @db.VarChar(64)
 
+  /// Ugyanez a szobára: "roomId:ISO-időpont". Külön kulcs kell, mert a slotLock
+  /// csak a szakembert védi – két különböző orvos ugyanabba a szobába tehetne
+  /// foglalást azonos időpontra. A leggyakoribb versenyhelyzet épp az, hogy
+  /// ketten a felkínált idősávra kattintanak egyszerre.
+  roomSlotLock String? @unique @db.VarChar(64)
+
   priceGross Int // a foglalás pillanatában érvényes ár (nem hivatkozás!)
   vatRate    Int @default(0)
 

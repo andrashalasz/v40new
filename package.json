@@ -10,7 +10,8 @@
     "postinstall": "nuxt prepare",
     "seed": "prisma db seed",
     "test": "node --experimental-strip-types --test server/booking/*.test.ts",
-    "optimize:images": "node scripts/optimize-images.mjs"
+    "optimize:images": "node scripts/optimize-images.mjs",
+    "typecheck": "nuxt typecheck"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -28,13 +29,17 @@
     "nuxt": "^4.3.1",
     "nuxt-auth-utils": "^0.5.29",
     "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
     "vue": "^3.5.28",
     "vue-material-design-icons": "^5.3.1",
-    "vue-router": "^4.6.4"
+    "vue-router": "^4.6.4",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "dotenv": "^17.3.1",
     "prisma": "^6.19.2",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "vue-tsc": "^2.1.10",
+    "typescript": "^5.6.3"
   }
 }

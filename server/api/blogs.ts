@@ -1,4 +1,4 @@
-import prisma from "./utils/prisma";
+import { prisma } from '~~/server/utils/prisma'
 import { H3Event } from "h3";
 import fs from "node:fs/promises";
 import path from "node:path";

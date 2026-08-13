@@ -1,0 +1,776 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V40 Vital – Admin (prototípus)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+:root{--ink:#171008;--brand:#153131;--sand:#F4F4F0;--mint:#E5F7F9;--line:#E4E4DE;--muted:#6B6660;
+  --warn:#A6541B;--warnbg:#FDF3EA;--ok:#1F6B4A;--okbg:#EFF7F2}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sand);color:var(--ink);font-family:'Manrope',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.dm{font-family:'DM Sans',system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+@media(max-width:900px){.shell{grid-template-columns:1fr}}
+aside{background:var(--brand);color:#fff;padding:22px 14px;position:sticky;top:0;height:100vh;overflow:auto}
+@media(max-width:900px){aside{position:static;height:auto}}
+aside .brand{font-family:'DM Sans',sans-serif;font-weight:700;font-size:17px;padding:0 10px 4px}
+aside .brand span{color:#7FD8E4}
+aside .proto{display:inline-block;background:rgba(255,255,255,.14);font-size:9.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;padding:3px 7px;border-radius:3px;margin:6px 0 18px 10px}
+aside .grp{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);
+  padding:16px 10px 6px;font-weight:700}
+aside a{display:block;padding:9px 10px;border-radius:7px;color:rgba(255,255,255,.82);text-decoration:none;font-weight:500}
+aside a:hover{background:rgba(255,255,255,.08)}
+aside a.on{background:#fff;color:var(--brand);font-weight:700}
+
+main{padding:26px 30px 80px;min-width:0}
+@media(max-width:600px){main{padding:20px 16px 60px}}
+.head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px}
+.head h1{font-family:'DM Sans',sans-serif;font-size:23px;margin:0}
+.head .sp{margin-left:auto;display:flex;gap:10px;align-items:center}
+.sub{color:var(--muted);margin:0 0 20px;max-width:780px}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
+.card h2{font-family:'DM Sans',sans-serif;font-size:16px;margin:0 0 4px}
+.card p.hint{color:var(--muted);font-size:13px;margin:0 0 16px}
+
+.btn{cursor:pointer;border:0;border-radius:8px;padding:10px 18px;background:var(--brand);color:#fff;font-weight:600}
+.btn.out{background:#fff;color:var(--brand);border:1px solid var(--line)}
+.btn.sm{padding:7px 12px;font-size:12.5px}
+.btn.danger{background:#fff;color:var(--warn);border:1px solid #F0DCC9}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
+td.name{font-weight:600}
+td.name small{display:block;color:var(--muted);font-weight:400}
+tr.arch td{opacity:.45}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.right{text-align:right;white-space:nowrap}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}
+.f{margin-bottom:14px}
+.f label{display:block;font-size:12px;font-weight:600;margin-bottom:5px}
+.f input,.f select,.f textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:#fff}
+.f textarea{resize:vertical}
+.f small{display:block;color:var(--muted);font-size:11.5px;margin-top:4px}
+.sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:500}
+.sw input{width:16px;height:16px;accent-color:var(--brand)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chipbox{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;
+  padding:7px 13px;cursor:pointer;background:#fff}
+.chipbox.on{border-color:var(--brand);background:var(--mint);font-weight:600}
+.chipbox input{width:15px;height:15px;accent-color:var(--brand)}
+.search{max-width:260px}
+
+.para{display:flex;gap:8px;margin-bottom:8px}
+.para textarea{flex:1}
+.icon{cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:6px;
+  width:32px;height:34px;flex:0 0 auto}
+.icon:hover{border-color:var(--warn);color:var(--warn)}
+.dash{border:1px dashed var(--line);background:transparent;color:var(--brand);border-radius:7px;
+  padding:7px 12px;cursor:pointer;font-weight:600;font-size:12.5px}
+
+.dayrow{display:grid;grid-template-columns:104px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.dayrow:first-child{border-top:0}
+.dname{font-weight:600;padding-top:6px}
+.dname small{display:block;color:var(--muted);font-weight:400;font-size:11px}
+.blk{display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap}
+
+.note{border-radius:9px;padding:12px 14px;font-size:13px;margin:14px 0}
+.note.warn{background:var(--warnbg);color:var(--warn)}
+.note.ok{background:var(--okbg);color:var(--ok)}
+.note.info{background:var(--mint);color:var(--brand)}
+.pill{display:inline-block;font-size:11px;font-weight:700;border-radius:4px;padding:3px 8px}
+.pill.on{background:var(--okbg);color:var(--ok)}
+.pill.off{background:var(--warnbg);color:var(--warn)}
+.pill.tam{background:var(--mint);color:var(--brand)}
+
+.back{position:fixed;inset:0;background:rgba(23,16,8,.5);z-index:60;display:flex;align-items:flex-start;
+  justify-content:center;padding:30px 16px;overflow:auto}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:720px;padding:26px;position:relative;
+  box-shadow:0 24px 60px rgba(0,0,0,.26)}
+.modal h2{font-family:'DM Sans',sans-serif;font-size:19px;margin:0 0 4px}
+.modal .x{position:absolute;right:14px;top:14px;width:32px;height:32px;border-radius:50%;
+  border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--muted)}
+.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--brand);color:#fff;padding:13px 18px;
+  border-radius:10px;font-weight:600;z-index:90;box-shadow:0 12px 30px rgba(0,0,0,.24);max-width:380px}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+.serp{border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
+</style>
+
+<div class="shell">
+  <aside>
+    <div class="brand dm">V<span>40</span> VITAL</div>
+    <span class="proto">Admin prototípus</span>
+    <nav id="nav"></nav>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="overlay"></div>
+
+<script>
+// ===========================================================================
+//  Adatok – éles rendszerben ezek a Prisma modellek
+// ===========================================================================
+const Ft = n => new Intl.NumberFormat('hu-HU').format(n) + ' Ft';
+const HM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+const MIN = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
+let uid = 1000;
+
+const db = {
+  rooms: [
+    { id:1, name:'Infúziós szoba A', isActive:true, archivedAt:null },
+    { id:2, name:'Infúziós szoba B', isActive:true, archivedAt:null },
+    { id:3, name:'Vizsgáló', isActive:true, archivedAt:null },
+    { id:4, name:'Kezelő', isActive:true, archivedAt:null },
+  ],
+  categories: [
+    { id:1, slug:'infuzios-kezelesek', name:'Infúziós kezelések', isActive:true, archivedAt:null,
+      shortDesc:'Az infúziós vitaminterápia során vitaminok, ásványi anyagok és antioxidánsok közvetlenül a véráramba kerülnek, így gyorsan hasznosulnak.',
+      longDesc:[
+        'Az infúziós vitaminterápia során a hatóanyagok kihagyják az emésztőrendszert, és közvetlenül a véráramba kerülnek. Így a felszívódás nem függ a bélrendszer állapotától.',
+        'A kezelés előtt minden esetben laborvizsgálat és orvosi konzultáció történik. Az összetételt ennek eredménye alapján állítjuk össze.',
+        'Egy infúzió jellemzően 45–90 perc, kényelmes fekvőfotelben. A kezelés után nincs felépülési idő.' ] },
+    { id:2, slug:'mikrobiome-programok', name:'Mikrobiome programok', isActive:true, archivedAt:null,
+      shortDesc:'A bélflóra egyensúlya alapvetően befolyásolja az emésztést, az immunrendszert és az anyagcserét.',
+      longDesc:[
+        'A bélflóra összetétele kapcsolatban áll az immunrendszer működésével, az anyagcserével és a gyulladásos folyamatokkal is.',
+        'A program egy otthon elvégezhető minta beküldésével indul.' ] },
+    { id:3, slug:'diagnosztika', name:'Diagnosztika', isActive:true, archivedAt:null,
+      shortDesc:'Laborpanelek és műszeres vizsgálatok orvosi kiértékeléssel.',
+      longDesc:['A diagnosztikai csomagok célja, hogy a döntések mérhető adatokon alapuljanak.'] },
+    { id:4, slug:'konzultacio', name:'Konzultáció', isActive:true, archivedAt:null,
+      shortDesc:'Első orvosi beszélgetés, célkitűzés és programtervezés.',
+      longDesc:['A konzultáció során felmérjük az előzményeket, a panaszokat és a célokat.'] },
+  ],
+  services: [
+    { id:1, slug:'nad-energy', title:'NAD+ Energy Infúzió', categoryId:1, priceGross:145000, vatRate:0,
+      durationMin:90, bufferBeforeMin:10, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:90,
+      roomIds:[1,2], isBookableOnline:true, archivedAt:null,
+      desc:'Sejtszintű energiatermelés támogatása NAD+ prekurzorokkal, orvosi felügyelet mellett.' },
+    { id:2, slug:'powerfuel', title:'Powerfuel Sport Regeneráció', categoryId:1, priceGross:119000, vatRate:0,
+      durationMin:75, bufferBeforeMin:10, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:90,
+      roomIds:[1,2], isBookableOnline:true, archivedAt:null,
+      desc:'Aminosav- és elektrolitpótlás intenzív edzésterhelés vagy verseny után.' },
+    { id:3, slug:'radiance', title:'Radiance Bőrfiatalítás', categoryId:null, priceGross:89000, vatRate:27,
+      durationMin:60, bufferBeforeMin:0, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:60,
+      roomIds:[4], isBookableOnline:true, archivedAt:null,
+      desc:'Kombinált antioxidáns és kollagén-stimuláló protokoll.' },
+    { id:4, slug:'cardiofit', title:'CardioFit Állapotfelmérés', categoryId:3, priceGross:65000, vatRate:0,
+      durationMin:45, bufferBeforeMin:0, bufferAfterMin:10, minLeadTimeHours:48, maxLeadTimeDays:90,
+      roomIds:[3], isBookableOnline:true, archivedAt:null,
+      desc:'Kardiovaszkuláris terhelési vizsgálat és laborpanel.' },
+    { id:5, slug:'signature-konzultacio', title:'Signature Longevity Konzultáció', categoryId:4,
+      priceGross:45000, vatRate:0, durationMin:30, bufferBeforeMin:0, bufferAfterMin:5,
+      minLeadTimeHours:12, maxLeadTimeDays:90, roomIds:[3], isBookableOnline:true, archivedAt:null,
+      desc:'Első orvosi beszélgetés és programtervezés.' },
+  ],
+  practitioners: [
+    { id:1, slug:'dr-vertes-anna', name:'Dr. Vértes Anna', titles:'Dr.',
+      category:'belgyógyász, longevity szakértő', serviceIds:[1,2,5], archivedAt:null,
+      desc:'Több mint 15 év belgyógyászati tapasztalattal a metabolikus egészség területén.',
+      hours:{1:[[540,780],[840,1140]],2:[[540,1140]],3:[],4:[[540,1140]],5:[[540,1020]],6:[],7:[]} },
+    { id:2, slug:'dr-szabo-gabor', name:'Dr. Szabó Gábor', titles:'Dr.', category:'kardiológus',
+      serviceIds:[4,5], archivedAt:null,
+      desc:'Kardiovaszkuláris prevencióval és terheléses diagnosztikával foglalkozik.',
+      hours:{1:[[600,1020]],2:[],3:[[600,1140]],4:[[600,1020]],5:[[600,1020]],6:[[480,720]],7:[]} },
+    { id:3, slug:'dr-gajer-peter', name:'Dr. Gájer Péter', titles:'Dr.', category:'sportorvos',
+      serviceIds:[2,4,5], archivedAt:null,
+      desc:'Teljesítmény-optimalizálás és regenerációs protokollok.',
+      hours:{1:[[480,900]],2:[[480,900]],3:[[480,900]],4:[],5:[[480,780]],6:[],7:[]} },
+  ],
+  passes: [
+    { id:1, slug:'nad-berlet-5', title:'NAD+ Bérlet – 5 alkalom', priceGross:620000, vatRate:0,
+      sessionCount:5, validityDays:180, serviceIds:[1], transferable:false, archivedAt:null,
+      desc:'Öt alkalom NAD+ Energy infúzióra.' },
+    { id:2, slug:'infuzios-berlet-10', title:'Infúziós Bérlet – 10 alkalom', priceGross:1090000, vatRate:0,
+      sessionCount:10, validityDays:365, serviceIds:[1,2], transferable:false, archivedAt:null,
+      desc:'Tíz alkalom a NAD+ Energy és a Powerfuel kezelésekre.' },
+    { id:3, slug:'radiance-berlet-3', title:'Radiance Bérlet – 3 alkalom', priceGross:240000, vatRate:27,
+      sessionCount:3, validityDays:120, serviceIds:[3], transferable:false, archivedAt:null,
+      desc:'Három alkalom Radiance bőrfiatalításra.' },
+  ],
+  clinicHours:{1:[[420,1140]],2:[[420,1140]],3:[[420,1140]],4:[[420,1140]],5:[[420,1140]],6:[[480,720]],7:[]},
+  settings:{ slotGranularityMin:15, holdMinutes:15, freeCancellationHours:24, reminderHoursBefore:24,
+    requireBuffersInsideHours:false, allowOnlineCancellation:true, allowOnlineReschedule:true,
+    ga4MeasurementId:'', gtmContainerId:'', metaPixelId:'', cookieBannerEnabled:true },
+  content: [
+    { key:'home.hero.title', page:'home', group:'Hero', label:'Nyitóoldal – főcím', type:'TEXT', value:'Egészség egy hosszú életre' },
+    { key:'home.hero.lead', page:'home', group:'Hero', label:'Nyitóoldal – alcím', type:'RICHTEXT',
+      value:'Orvosi állapotfelmérésre épülő longevity program személyre szabott kezelésekkel és modern diagnosztikával.' },
+    { key:'home.hero.cta1', page:'home', group:'Hero', label:'Elsődleges gomb', type:'TEXT', value:'Időpontfoglalás' },
+    { key:'home.hero.cta2', page:'home', group:'Hero', label:'Másodlagos gomb', type:'TEXT', value:'Mi az a Longevity?' },
+    { key:'home.why.title', page:'home', group:'Miért a V40Vital?', label:'Cím', type:'TEXT', value:'Miért a V40Vital?' },
+    { key:'home.why.lead', page:'home', group:'Miért a V40Vital?', label:'Bevezető', type:'RICHTEXT',
+      value:'Az egészségmegőrzés nálunk nem általános tanácsokból, hanem adatokra épülő orvosi döntésekből indul.' },
+    { key:'home.types.title', page:'home', group:'Kezelés típusok', label:'Cím', type:'TEXT', value:'Kezelés típusok' },
+    { key:'home.types.lead', page:'home', group:'Kezelés típusok', label:'Bevezető', type:'RICHTEXT',
+      value:'Programjaink különböző egészségügyi célokra, panaszokra és élethelyzetekre kínálnak megoldást.' },
+    { key:'home.system.title', page:'home', group:'Hogyan működik?', label:'Cím', type:'TEXT', value:'Hogyan működik?' },
+    { key:'home.doctors.title', page:'home', group:'Orvosaink', label:'Cím', type:'TEXT', value:'Orvosaink' },
+    { key:'cta.title', page:'global', group:'Alsó sáv', label:'Cím', type:'TEXT', value:'Foglalj időpontot kedvezménnyel!' },
+    { key:'cta.hours', page:'global', group:'Alsó sáv', label:'Nyitvatartás', type:'RICHTEXT',
+      value:'Hétfő – Péntek: 7:00 – 19:00\nSzombat: 8:00 – 12:00' },
+    { key:'contact.phone', page:'global', group:'Elérhetőség', label:'Telefonszám', type:'TEXT', value:'+36 20 459 2248' },
+    { key:'contact.email', page:'global', group:'Elérhetőség', label:'E-mail cím', type:'TEXT', value:'info@v40vital.hu' },
+    { key:'contact.address', page:'global', group:'Elérhetőség', label:'Cím', type:'TEXT', value:'Budapest, Visegrádi utca 40.' },
+    { key:'footer.about', page:'global', group:'Footer', label:'Bemutatkozó', type:'RICHTEXT',
+      value:'A hosszú élet önmagában nem elég. Mi az egészségesen, aktívan és jobb közérzettel megélt évekre fókuszálunk.' },
+  ],
+  seo: [
+    { path:'/', title:'V40 Vital – Longevity klinika Budapesten', noindex:false,
+      description:'Orvosi állapotfelmérésre épülő longevity program, infúziós kezelések és személyre szabott egészségstratégia Budapest belvárosában.' },
+    { path:'/kezelesek', title:'Kezelések és árak | V40 Vital', noindex:false,
+      description:'Infúziós terápiák, diagnosztikai csomagok és konzultáció. Online időpontfoglalás, bankkártyás fizetés.' },
+    { path:'/berletek', title:'Bérletek | V40 Vital', noindex:false,
+      description:'Több alkalomra előre, kedvezőbb áron. Bérleteink érvényessége és felhasználási feltételei.' },
+    { path:'/gyik', title:'Gyakran ismételt kérdések | V40 Vital', noindex:false,
+      description:'Foglalás, lemondás, fizetés, egészségpénztári elszámolás – a leggyakoribb kérdések.' },
+  ],
+  // Demó: mennyi korábbi foglalás hivatkozik az adott bejegyzésre
+  usage:{ service:{1:14,2:6,3:9,4:3,5:22}, practitioner:{1:31,2:12,3:0},
+          room:{1:20,2:14,3:25,4:0}, pass:{1:2,2:5,3:0}, category:{1:0,2:0,3:0,4:0} },
+};
+
+const DAYS = ['Hétfő','Kedd','Szerda','Csütörtök','Péntek','Szombat','Vasárnap'];
+const slugify = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()
+  .replace(/\s+/g,'-').replace(/[^\w-]+/g,'').replace(/--+/g,'-');
+const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const live = a => a.filter(x => !x.archivedAt);
+const usedBy = (k,id) => (db.usage[k]||{})[id] || 0;
+
+// ===========================================================================
+//  Állapot
+// ===========================================================================
+let view='kezelesek', editing=null, confirming=null, toast=null, q='', activePract=1, contentPage='home';
+
+const NAV = [
+  ['Katalógus', [['kezelesek','Kezelések'],['tipusok','Kezelés-típusok'],['berletek','Bérletek']]],
+  ['Kapacitás', [['szakemberek','Szakemberek'],['szobak','Szobák'],['beosztas','Nyitvatartás']]],
+  ['Weboldal',  [['szovegek','Szövegek'],['seo','SEO']]],
+  ['Rendszer',  [['szabalyok','Foglalási szabályok'],['marketing','Marketing']]],
+];
+
+const COLL = {
+  kezelesek:   { arr:()=>db.services,      kind:'service',      title:'Kezelések',       one:'kezelés' },
+  tipusok:     { arr:()=>db.categories,    kind:'category',     title:'Kezelés-típusok', one:'típus' },
+  szakemberek: { arr:()=>db.practitioners, kind:'practitioner', title:'Szakemberek',     one:'szakember' },
+  szobak:      { arr:()=>db.rooms,         kind:'room',         title:'Szobák',          one:'szoba' },
+  berletek:    { arr:()=>db.passes,        kind:'pass',         title:'Bérletek',        one:'bérlet' },
+};
+
+const VAT = () => [[0,'Áfamentes (egészségügyi)'],[27,'27% (esztétikai)']];
+
+const FIELDS = {
+  kezelesek: [
+    { k:'title', l:'Megnevezés', t:'text', req:1, w:2 },
+    { k:'slug', l:'URL-slug', t:'text', req:1, w:2,
+      h:'Ez szerepel az URL-ben. Ha megváltoztatod, a régi cím 301-es átirányítást kap, így a SEO nem sérül.' },
+    { k:'desc', l:'Leírás', t:'area', rows:3, w:2 },
+    { k:'categoryId', l:'Kezelés-típus', t:'sel', opts:()=>[['','– nincs –'],...live(db.categories).map(c=>[c.id,c.name])] },
+    { k:'priceGross', l:'Bruttó ár (Ft)', t:'num', step:1000 },
+    { k:'vatRate', l:'Áfa', t:'sel', opts:VAT,
+      h:'A magán egészségügyi szolgáltatás áfamentes (Áfa tv. 85. §), az esztétikai jellegű nem.' },
+    { k:'durationMin', l:'Hossz (perc)', t:'num', step:5, req:1 },
+    { k:'bufferBeforeMin', l:'Puffer előtte (perc)', t:'num', step:5 },
+    { k:'bufferAfterMin', l:'Puffer utána (perc)', t:'num', step:5 },
+    { k:'minLeadTimeHours', l:'Legkorábbi foglalás (óra)', t:'num' },
+    { k:'maxLeadTimeDays', l:'Naptár nyitva (nap)', t:'num' },
+    { k:'roomIds', l:'Mely szobákban végezhető', t:'multi', w:2, opts:()=>live(db.rooms).map(r=>[r.id,r.name]),
+      h:'Ez adja a párhuzamos kapacitást. Szoba nélkül a rendszer csak a szakember idejét figyeli – infúziónál ez hiba.' },
+    { k:'isBookableOnline', l:'Online foglalható', t:'bool', w:2 },
+  ],
+  tipusok: [
+    { k:'name', l:'Megnevezés', t:'text', req:1 },
+    { k:'slug', l:'URL-slug', t:'text', req:1 },
+    { k:'shortDesc', l:'Rövid leírás (a kártyán)', t:'area', rows:3, w:2 },
+    { k:'longDesc', l:'Részletes leírás (felugró ablak)', t:'paras', w:2,
+      h:'Ezt látja a látogató, ha a nyitóoldalon a kártyára kattint. Minden bekezdés külön mező.' },
+    { k:'isActive', l:'Megjelenik a weboldalon', t:'bool', w:2 },
+  ],
+  szakemberek: [
+    { k:'name', l:'Név', t:'text', req:1 },
+    { k:'slug', l:'URL-slug', t:'text', req:1 },
+    { k:'titles', l:'Titulus', t:'text' },
+    { k:'category', l:'Szakterület', t:'text' },
+    { k:'desc', l:'Bemutatkozás', t:'area', rows:3, w:2 },
+    { k:'serviceIds', l:'Mely kezeléseket végzi', t:'multi', w:2, req:1, opts:()=>live(db.services).map(s=>[s.id,s.title]) },
+  ],
+  szobak: [
+    { k:'name', l:'Megnevezés', t:'text', req:1, w:2 },
+    { k:'isActive', l:'Használatban', t:'bool', w:2 },
+  ],
+  berletek: [
+    { k:'title', l:'Megnevezés', t:'text', req:1, w:2 },
+    { k:'slug', l:'URL-slug', t:'text', req:1, w:2 },
+    { k:'desc', l:'Leírás', t:'area', rows:2, w:2 },
+    { k:'priceGross', l:'Bruttó ár (Ft)', t:'num', step:10000 },
+    { k:'vatRate', l:'Áfa', t:'sel', opts:VAT },
+    { k:'sessionCount', l:'Alkalmak száma', t:'num' },
+    { k:'validityDays', l:'Érvényesség (nap)', t:'num',
+      h:'A vásárlástól számítva. Ennek az ÁSZF-ben is szerepelnie kell.' },
+    { k:'serviceIds', l:'Mely kezelésekre használható', t:'multi', w:2, req:1,
+      opts:()=>live(db.services).map(s=>[s.id,s.title]) },
+    { k:'transferable', l:'Átruházható más személyre', t:'bool', w:2 },
+  ],
+};
+
+const BLANK = {
+  kezelesek:()=>({title:'',slug:'',desc:'',categoryId:'',priceGross:0,vatRate:0,durationMin:60,
+    bufferBeforeMin:0,bufferAfterMin:10,minLeadTimeHours:24,maxLeadTimeDays:90,roomIds:[],
+    isBookableOnline:true,archivedAt:null}),
+  tipusok:()=>({name:'',slug:'',shortDesc:'',longDesc:[''],isActive:true,archivedAt:null}),
+  szakemberek:()=>({name:'',slug:'',titles:'Dr.',category:'',desc:'',serviceIds:[],archivedAt:null,
+    hours:{1:[],2:[],3:[],4:[],5:[],6:[],7:[]}}),
+  szobak:()=>({name:'',isActive:true,archivedAt:null}),
+  berletek:()=>({title:'',slug:'',desc:'',priceGross:0,vatRate:0,sessionCount:5,validityDays:180,
+    serviceIds:[],transferable:false,archivedAt:null}),
+};
+
+// ===========================================================================
+//  Generikus űrlap
+// ===========================================================================
+function field(f, d) {
+  const v = d[f.k];
+  const box = inner => `<div class="f" style="${f.w===2?'grid-column:1/-1':''}">
+    <label>${f.l}${f.req?' *':''}</label>${inner}${f.h?`<small>${f.h}</small>`:''}</div>`;
+
+  switch (f.t) {
+    case 'text': return box(`<input data-fk="${f.k}" value="${esc(v)}">`);
+    case 'num':  return box(`<input type="number" data-fk="${f.k}" value="${v ?? 0}" step="${f.step||1}">`);
+    case 'area': return box(`<textarea rows="${f.rows||3}" data-fk="${f.k}">${esc(v)}</textarea>`);
+    case 'sel':  return box(`<select data-fk="${f.k}">${f.opts().map(([o,l])=>
+                   `<option value="${o}" ${String(o)===String(v??'')?'selected':''}>${l}</option>`).join('')}</select>`);
+    case 'bool': return `<div class="f" style="grid-column:1/-1">
+                   <label class="sw"><input type="checkbox" data-fk="${f.k}" ${v?'checked':''}> ${f.l}</label>
+                   ${f.h?`<small>${f.h}</small>`:''}</div>`;
+    case 'multi':return box(`<div class="chips">${f.opts().map(([o,l])=>
+                   `<label class="chipbox ${(v||[]).includes(o)?'on':''}">
+                     <input type="checkbox" data-multi="${f.k}" value="${o}" ${(v||[]).includes(o)?'checked':''}>${l}</label>`).join('')}</div>`);
+    case 'paras':return box(`<div>${(v||[]).map((p,i)=>`<div class="para">
+                     <textarea rows="3" data-para="${i}">${esc(p)}</textarea>
+                     <button class="icon" data-paradel="${i}" title="Törlés">✕</button></div>`).join('')}
+                   <button class="dash" data-paraadd="1">+ Bekezdés</button></div>`);
+  }
+  return '';
+}
+
+function editor() {
+  if (!editing) return '';
+  const { kind, id, draft } = editing, C = COLL[kind], isNew = id === null;
+  const missing = FIELDS[kind].filter(f => f.req &&
+    (draft[f.k] === '' || draft[f.k] == null || (Array.isArray(draft[f.k]) && !draft[f.k].length)));
+
+  let extra = '';
+  if (kind === 'kezelesek') {
+    const tot = (+draft.bufferBeforeMin||0) + (+draft.durationMin||0) + (+draft.bufferAfterMin||0);
+    extra = `<div class="note info">Egy foglalás <b>${tot} percet</b> foglal a naptárban,
+      ebből ${draft.durationMin||0} perc a kezelés.</div>`;
+  }
+  if (kind === 'berletek' && draft.serviceIds?.length) {
+    const top = Math.max(...draft.serviceIds.map(i => db.services.find(s=>s.id===i)?.priceGross || 0));
+    const full = top * (+draft.sessionCount || 0), save = full - (+draft.priceGross||0);
+    extra = `<div class="note ${save>0?'ok':'warn'}">Listaáron ${Ft(full)} lenne.
+      ${save>0 ? `A bérlet <b>${Ft(save)}</b> megtakarítás.`
+               : 'A bérlet ára nem kedvezőbb a listaárnál – ezt érdemes ellenőrizni.'}</div>`;
+  }
+
+  return `<div class="back" data-back><div class="modal">
+    <button class="x" data-close>✕</button>
+    <h2 class="dm">${isNew ? `Új ${C.one}` : `${C.one[0].toUpperCase()+C.one.slice(1)} szerkesztése`}</h2>
+    <p style="color:var(--muted);margin:0 0 20px">A mentés azonnal él a weboldalon.</p>
+    <div class="grid2">${FIELDS[kind].map(f=>field(f,draft)).join('')}</div>
+    ${extra}
+    ${missing.length ? `<div class="note warn">Kötelező még: ${missing.map(f=>f.l).join(', ')}</div>` : ''}
+    <div class="acts">
+      <button class="btn" data-save ${missing.length?'disabled':''}>Mentés</button>
+      <button class="btn out" data-close>Mégsem</button>
+    </div></div></div>`;
+}
+
+function confirmBox() {
+  if (!confirming) return '';
+  const { kind, id } = confirming, C = COLL[kind];
+  const row = C.arr().find(x=>x.id===id), n = usedBy(C.kind, id);
+  return `<div class="back" data-back><div class="modal" style="max-width:520px">
+    <button class="x" data-close>✕</button>
+    <h2 class="dm">${esc(row.title || row.name)}</h2>
+    <p style="color:var(--muted);margin:4px 0 16px">Eltávolítás a weboldalról</p>
+    ${n > 0
+      ? `<div class="note warn">Ehhez a bejegyzéshez <b>${n} korábbi foglalás</b> tartozik, ezért véglegesen
+          nem törölhető: a foglalások és a kiállított számlák hivatkoznak rá, és elszakadna a nyomvonal.<br><br>
+          Helyette <b>archiválva</b> lesz. Az ügyfél számára ugyanaz történik: azonnal eltűnik a weboldalról
+          és a foglalható listákból. Csak az előzmény marad meg mögötte, és bármikor visszakapcsolható.</div>`
+      : `<div class="note ok">Ehhez a bejegyzéshez nem tartozik foglalás, tehát véglegesen törölhető.</div>`}
+    <div class="acts">
+      <button class="btn danger" data-doarch>${n>0 ? 'Archiválás' : 'Véglegesen törlöm'}</button>
+      <button class="btn out" data-close>Mégsem</button>
+    </div></div></div>`;
+}
+
+// ===========================================================================
+//  Listák
+// ===========================================================================
+const acts = (k,r) => `<td class="right">
+  <button class="btn out sm" data-edit="${k}:${r.id}">Szerkesztés</button>
+  ${r.archivedAt ? `<button class="btn out sm" data-restore="${k}:${r.id}">Visszakapcsolás</button>`
+                 : `<button class="btn danger sm" data-del="${k}:${r.id}">Törlés</button>`}</td>`;
+
+function topBar(k) {
+  const C = COLL[k], arch = C.arr().filter(x=>x.archivedAt).length;
+  return `<div class="head"><h1 class="dm">${C.title}</h1>
+    <div class="sp">
+      <input class="search" id="q" placeholder="Keresés…" value="${esc(q)}">
+      <button class="btn" data-new="${k}">+ Új ${C.one}</button>
+    </div></div>
+    ${arch ? `<p class="sub">${arch} archivált bejegyzés a lista alján, halványítva.</p>` : ''}`;
+}
+
+function rows(k) {
+  const t = q.trim().toLowerCase();
+  return COLL[k].arr()
+    .filter(r => !t || (r.title||r.name||'').toLowerCase().includes(t) || (r.slug||'').toLowerCase().includes(t))
+    .sort((a,b) => (a.archivedAt?1:0) - (b.archivedAt?1:0));
+}
+const vat = v => v===0 ? '<span class="pill tam">TAM</span>' : '<span class="pill off">27%</span>';
+const yn  = v => v ? '<span class="pill on">igen</span>' : '<span class="pill off">nem</span>';
+
+const vKezelesek = () => `${topBar('kezelesek')}
+  <div class="card"><table>
+    <tr><th>Kezelés</th><th>Típus</th><th class="right">Ár</th><th>Áfa</th><th class="right">Idő</th>
+      <th>Szoba</th><th>Online</th><th></th></tr>
+    ${rows('kezelesek').map(s=>`<tr class="${s.archivedAt?'arch':''}">
+      <td class="name">${esc(s.title)}<small class="mono">/${s.slug}</small></td>
+      <td>${db.categories.find(c=>c.id===+s.categoryId)?.name || '—'}</td>
+      <td class="right num">${Ft(s.priceGross)}</td><td>${vat(s.vatRate)}</td>
+      <td class="right num">${s.durationMin}′ <small style="color:var(--muted)">+${s.bufferBeforeMin+s.bufferAfterMin}′</small></td>
+      <td>${s.roomIds.length ? s.roomIds.map(i=>db.rooms.find(r=>r.id===i)?.name).join(', ')
+        : '<span class="pill off">nincs</span>'}</td>
+      <td>${yn(s.isBookableOnline)}</td>${acts('kezelesek',s)}</tr>`).join('')}
+  </table></div>
+  ${live(db.services).some(s=>!s.roomIds.length) ? `<div class="note warn">
+    Van olyan kezelés, amelyhez nincs szoba hozzárendelve. Ilyenkor a rendszer csak a szakember idejét figyeli,
+    tehát két ügyfél ugyanabba az időbe kerülhet. Infúziós kezelésnél ez hiba.</div>` : ''}`;
+
+const vTipusok = () => `${topBar('tipusok')}
+  <p class="sub">Ezek jelennek meg a nyitóoldal „Kezelés típusok” szekciójában. A részletes leírás
+  felugró ablakban nyílik meg, ha a látogató a kártyára kattint.</p>
+  <div class="card"><table>
+    <tr><th>Típus</th><th>Rövid leírás</th><th class="right">Bekezdés</th><th class="right">Kezelés</th><th>Látható</th><th></th></tr>
+    ${rows('tipusok').map(c=>`<tr class="${c.archivedAt?'arch':''}">
+      <td class="name">${esc(c.name)}<small class="mono">/${c.slug}</small></td>
+      <td style="max-width:340px;color:var(--muted)">${esc((c.shortDesc||'').slice(0,110))}${(c.shortDesc||'').length>110?'…':''}</td>
+      <td class="right num">${(c.longDesc||[]).length} db</td>
+      <td class="right num">${db.services.filter(s=>+s.categoryId===c.id).length}</td>
+      <td>${yn(c.isActive)}</td>${acts('tipusok',c)}</tr>`).join('')}
+  </table></div>`;
+
+const vBerletek = () => `${topBar('berletek')}
+  <div class="card"><table>
+    <tr><th>Bérlet</th><th class="right">Ár</th><th>Áfa</th><th class="right">Alkalom</th>
+      <th class="right">Érvényes</th><th>Mely kezelésekre</th><th class="right">Eladott</th><th></th></tr>
+    ${rows('berletek').map(p=>`<tr class="${p.archivedAt?'arch':''}">
+      <td class="name">${esc(p.title)}<small class="mono">/${p.slug}</small></td>
+      <td class="right num">${Ft(p.priceGross)}</td><td>${vat(p.vatRate)}</td>
+      <td class="right num">${p.sessionCount}</td><td class="right num">${p.validityDays} nap</td>
+      <td>${p.serviceIds.map(i=>db.services.find(s=>s.id===i)?.title).join(', ') || '<span class="pill off">nincs</span>'}</td>
+      <td class="right num">${usedBy('pass',p.id)}</td>${acts('berletek',p)}</tr>`).join('')}
+  </table></div>
+  <div class="note info">A bérlet érvényessége és a fel nem használt alkalmak kezelése fogyasztóvédelmi
+  kérdés – ezeknek az ÁSZF-ben is szerepelnie kell. A jelenlegi ÁSZF ezt még nem tartalmazza.</div>`;
+
+const vSzakemberek = () => `${topBar('szakemberek')}
+  <div class="card"><table>
+    <tr><th>Név</th><th>Szakterület</th><th class="right">Heti óra</th><th class="right">Kezelés</th>
+      <th class="right">Foglalás</th><th></th></tr>
+    ${rows('szakemberek').map(p=>`<tr class="${p.archivedAt?'arch':''}">
+      <td class="name">${esc(p.name)}<small class="mono">/${p.slug}</small></td>
+      <td>${esc(p.category)||'—'}</td>
+      <td class="right num">${Object.values(p.hours).flat().reduce((a,[s,e])=>a+(e-s),0)/60} ó</td>
+      <td class="right num">${p.serviceIds.length}</td>
+      <td class="right num">${usedBy('practitioner',p.id)}</td>${acts('szakemberek',p)}</tr>`).join('')}
+  </table></div>
+  ${schedule()}`;
+
+const vSzobak = () => `${topBar('szobak')}
+  <p class="sub">A szoba adja a párhuzamos kapacitást: ha minden alkalmas szoba foglalt, nincs több szabad
+  idősáv – akkor sem, ha a szakember épp szabad.</p>
+  <div class="card"><table>
+    <tr><th>Szoba</th><th>Mely kezelésekhez</th><th class="right">Foglalás</th><th>Használatban</th><th></th></tr>
+    ${rows('szobak').map(r=>`<tr class="${r.archivedAt?'arch':''}">
+      <td class="name">${esc(r.name)}</td>
+      <td>${db.services.filter(s=>s.roomIds.includes(r.id)).map(s=>s.title).join(', ') || '—'}</td>
+      <td class="right num">${usedBy('room',r.id)}</td>
+      <td>${yn(r.isActive)}</td>${acts('szobak',r)}</tr>`).join('')}
+  </table></div>`;
+
+// ---- beosztás -------------------------------------------------------------
+const week = (map, tag) => DAYS.map((name,i) => {
+  const iso = i+1, bl = map[iso] || [];
+  return `<div class="dayrow">
+    <div class="dname">${name}<small>${bl.length ? bl.reduce((a,[s,e])=>a+(e-s),0)/60+' óra' : 'zárva'}</small></div>
+    <div>${bl.map(([s,e],bi)=>`<div class="blk">
+      <input type="time" value="${HM(s)}" data-${tag}="${iso}:${bi}:s">
+      <span style="color:var(--muted)">–</span>
+      <input type="time" value="${HM(e)}" data-${tag}="${iso}:${bi}:e">
+      <button class="icon" data-${tag}d="${iso}:${bi}">✕</button>
+      ${e<=s ? '<span style="color:var(--warn);font-size:12px">a záró idő nem lehet korábbi</span>' : ''}
+      </div>`).join('') || '<div style="color:var(--muted);padding-top:6px">Zárva</div>'}
+      <button class="dash" data-${tag}a="${iso}">+ Idősáv</button></div></div>`;
+}).join('');
+
+function schedule() {
+  const p = live(db.practitioners).find(x=>x.id===activePract) || live(db.practitioners)[0];
+  if (!p) return '';
+  return `<div class="card">
+    <h2 class="dm">Rendelési idő</h2>
+    <p class="hint">A foglalhatóság a rendelő nyitvatartása ÉS a szakember beosztása metszete.
+      A délelőtti és délutáni sáv külön vehető fel – ami közte van, az ebédszünet.</p>
+    <div class="f" style="max-width:280px"><label>Szakember</label>
+      <select id="pp">${live(db.practitioners).map(x=>
+        `<option value="${x.id}" ${x.id===p.id?'selected':''}>${x.name}</option>`).join('')}</select></div>
+    ${week(p.hours,'ph')}</div>`;
+}
+
+const vBeosztas = () => `
+  <div class="head"><h1 class="dm">A rendelő nyitvatartása</h1></div>
+  <p class="sub">Ez a külső korlát. Ha itt zárva van, a szakember beosztása hiába nyitott – foglalni nem lehet.
+  Így az ünnepnapi zárást egy helyen kell felvenni, nem minden orvosnál külön.</p>
+  <div class="card">${week(db.clinicHours,'ch')}</div>
+  ${schedule()}
+  ${(()=>{ const bad = live(db.practitioners).filter(p =>
+      Object.entries(p.hours).some(([iso,bl]) => bl.length && !(db.clinicHours[iso]||[]).length));
+    return bad.length ? `<div class="note warn">${bad.map(p=>p.name).join(', ')} olyan napon is rendel,
+      amikor a rendelő zárva van. Ezek az idősávok nem fognak megjelenni.</div>` : ''; })()}`;
+
+// ---- szövegek -------------------------------------------------------------
+function vSzovegek() {
+  const pages = [...new Set(db.content.map(c=>c.page))];
+  const list = db.content.filter(c=>c.page===contentPage);
+  const groups = [...new Set(list.map(c=>c.group))];
+  const label = p => p==='home' ? 'Nyitóoldal' : p==='global' ? 'Minden oldalon' : p;
+  return `<div class="head"><h1 class="dm">Weboldal szövegei</h1></div>
+  <p class="sub">A weboldalon megjelenő minden szöveg innen jön. Ha egy mezőt üresen hagysz, a beépített
+  alapérték jelenik meg – üres oldal nem tud keletkezni.</p>
+  <div class="chips" style="margin-bottom:18px">${pages.map(p=>
+    `<button class="chipbox ${p===contentPage?'on':''}" data-cp="${p}">${label(p)}</button>`).join('')}</div>
+  ${groups.map(g=>`<div class="card"><h2 class="dm">${g}</h2>
+    <p class="hint">${list.filter(c=>c.group===g).length} szövegblokk</p>
+    ${list.filter(c=>c.group===g).map(c=>`<div class="f">
+      <label>${c.label} <span class="mono" style="color:var(--muted);font-weight:400">${c.key}</span></label>
+      ${c.type==='RICHTEXT' ? `<textarea rows="3" data-ck="${c.key}">${esc(c.value)}</textarea>`
+                            : `<input data-ck="${c.key}" value="${esc(c.value)}">`}</div>`).join('')}
+  </div>`).join('')}
+  <button class="btn" data-csave>Szövegek mentése</button>`;
+}
+
+// ---- SEO ------------------------------------------------------------------
+const vSeo = () => `<div class="head"><h1 class="dm">SEO</h1></div>
+  <p class="sub">Oldalankénti cím és leírás. A kezeléseknek és bérleteknek saját meta mezőik lesznek
+  a szerkesztőjükben, mert a slug is náluk van.</p>
+  ${db.seo.map((s,i)=>`<div class="card">
+    <h2 class="dm mono">${s.path}</h2><p class="hint">Google-találat előnézet</p>
+    <div class="serp">
+      <div style="color:#1a0dab;font-size:18px;line-height:1.3">${esc(s.title) || '(nincs cím)'}</div>
+      <div style="color:#006621;font-size:12.5px">v40vital.hu${s.path}</div>
+      <div style="color:#4d5156;font-size:13px">${esc(s.description) || '(nincs leírás)'}</div>
+    </div>
+    <div class="f"><label>Cím
+      <small style="display:inline;color:${s.title.length>60?'var(--warn)':'var(--muted)'}">${s.title.length}/60</small></label>
+      <input data-seo="${i}:title" value="${esc(s.title)}"></div>
+    <div class="f"><label>Leírás
+      <small style="display:inline;color:${s.description.length>160?'var(--warn)':'var(--muted)'}">${s.description.length}/160</small></label>
+      <textarea rows="2" data-seo="${i}:description">${esc(s.description)}</textarea></div>
+    <label class="sw"><input type="checkbox" data-seob="${i}" ${s.noindex?'checked':''}>
+      Kizárás a keresőkből (noindex)</label>
+  </div>`).join('')}
+  <button class="btn" data-seosave>SEO mentése</button>`;
+
+// ---- szabályok / marketing ------------------------------------------------
+const vSzabalyok = () => { const s = db.settings; return `
+  <div class="head"><h1 class="dm">Foglalási szabályok</h1></div>
+  <p class="sub">Ezek minden kezelésre érvényesek, kivéve ahol a kezelés saját értéket ad meg.</p>
+  <div class="card"><div class="grid2">
+    <div class="f"><label>Idősáv-raszter (perc)</label>
+      <input type="number" step="5" data-setn="slotGranularityMin" value="${s.slotGranularityMin}">
+      <small>Ekkora lépésekben kínálunk kezdési időpontot (09:00, 09:15…).</small></div>
+    <div class="f"><label>Zárolás fizetés közben (perc)</label>
+      <input type="number" data-setn="holdMinutes" value="${s.holdMinutes}">
+      <small>Ennyi ideig tartjuk az idősávot. Ha nem fizet, magától felszabadul.</small></div>
+    <div class="f"><label>Ingyenes lemondás (órával előtte)</label>
+      <input type="number" data-setn="freeCancellationHours" value="${s.freeCancellationHours}">
+      <small>Bérletnél az ezen belüli lemondás elviszi az alkalmat.</small></div>
+    <div class="f"><label>Emlékeztető (órával előtte)</label>
+      <input type="number" data-setn="reminderHoursBefore" value="${s.reminderHoursBefore}"></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:9px">
+    <label class="sw"><input type="checkbox" data-setb="requireBuffersInsideHours" ${s.requireBuffersInsideHours?'checked':''}>
+      A puffer se nyúlhat túl a záráson</label>
+    <label class="sw"><input type="checkbox" data-setb="allowOnlineCancellation" ${s.allowOnlineCancellation?'checked':''}>
+      Az ügyfél lemondhat online</label>
+    <label class="sw"><input type="checkbox" data-setb="allowOnlineReschedule" ${s.allowOnlineReschedule?'checked':''}>
+      Az ügyfél átteheti az időpontot online</label>
+  </div></div>
+  <button class="btn" data-ssave>Mentés</button>`; };
+
+const vMarketing = () => { const s = db.settings; return `
+  <div class="head"><h1 class="dm">Marketing és analitika</h1></div>
+  <p class="sub">Mérőkódok azonosítói. Ezek csak a látogató hozzájárulása után töltődnek be.</p>
+  <div class="card"><div class="grid3">
+    <div class="f"><label>GA4 mérési azonosító</label>
+      <input data-sett="ga4MeasurementId" value="${esc(s.ga4MeasurementId)}" placeholder="G-XXXXXXX"></div>
+    <div class="f"><label>Google Tag Manager</label>
+      <input data-sett="gtmContainerId" value="${esc(s.gtmContainerId)}" placeholder="GTM-XXXXXX"></div>
+    <div class="f"><label>Meta Pixel</label>
+      <input data-sett="metaPixelId" value="${esc(s.metaPixelId)}" placeholder="123456789"></div>
+  </div>
+  <label class="sw"><input type="checkbox" data-setb="cookieBannerEnabled" ${s.cookieBannerEnabled?'checked':''}>
+    Sütibanner megjelenítése</label>
+  <div class="note warn">Egészségügyi oldalon a remarketing külön figyelmet igényel. Ha egy pixel azt jelzi,
+    hogy a látogató az „Anyajegy vizsgálat” oldalt nézte, az a GDPR 9. cikke szerinti egészségügyi adatra
+    vonatkozó következtetés. Ezért a mérés <b>nem</b> tartalmazhat kezelés-szintű azonosítót, és a sütibanner
+    kikapcsolása nem javasolt.</div></div>
+  <button class="btn" data-ssave>Mentés</button>`; };
+
+const VIEWS = { kezelesek:vKezelesek, tipusok:vTipusok, berletek:vBerletek, szakemberek:vSzakemberek,
+  szobak:vSzobak, beosztas:vBeosztas, szovegek:vSzovegek, seo:vSeo, szabalyok:vSzabalyok, marketing:vMarketing };
+
+// ===========================================================================
+//  Render + kötések
+// ===========================================================================
+function render() {
+  document.getElementById('nav').innerHTML = NAV.map(([g,items]) =>
+    `<div class="grp">${g}</div>` + items.map(([k,l]) =>
+      `<a href="#" data-v="${k}" class="${k===view?'on':''}">${l}</a>`).join('')).join('');
+  document.getElementById('main').innerHTML = (VIEWS[view] || vKezelesek)();
+  document.getElementById('overlay').innerHTML = editor() + confirmBox() +
+    (toast ? `<div class="toast">${toast}</div>` : '');
+  bind();
+}
+
+function flash(m) { toast = m; render(); setTimeout(()=>{ toast = null; render(); }, 2600); }
+
+/** Újrarender után visszaadja a fókuszt és a kurzort – enélkül minden leütés elveszne. */
+function keepCaret(sel, pos) {
+  render();
+  const el = document.querySelector(sel);
+  if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} }
+}
+
+function bind() {
+  const on = (s,e,f) => document.querySelectorAll(s).forEach(el => el.addEventListener(e,f));
+  const D = () => editing.draft;
+
+  on('[data-v]','click', e => { e.preventDefault(); view = e.currentTarget.dataset.v; q = ''; render(); });
+  on('#q','input', e => { const pos = e.target.selectionStart; q = e.target.value; keepCaret('#q', pos); });
+
+  on('[data-new]','click', e => {
+    const k = e.currentTarget.dataset.new;
+    editing = { kind:k, id:null, draft:BLANK[k]() }; render();
+  });
+  on('[data-edit]','click', e => {
+    const [k,id] = e.currentTarget.dataset.edit.split(':');
+    editing = { kind:k, id:+id, draft:JSON.parse(JSON.stringify(COLL[k].arr().find(x=>x.id===+id))) };
+    render();
+  });
+  on('[data-del]','click', e => {
+    const [k,id] = e.currentTarget.dataset.del.split(':');
+    confirming = { kind:k, id:+id }; render();
+  });
+  on('[data-restore]','click', e => {
+    const [k,id] = e.currentTarget.dataset.restore.split(':');
+    COLL[k].arr().find(x=>x.id===+id).archivedAt = null;
+    flash('Visszakapcsolva – újra megjelenik a weboldalon.');
+  });
+  on('[data-doarch]','click', () => {
+    const { kind, id } = confirming, arr = COLL[kind].arr();
+    const row = arr.find(x=>x.id===id);
+    if (usedBy(COLL[kind].kind, id) > 0) {
+      row.archivedAt = new Date().toISOString();
+      confirming = null; flash('Archiválva – eltűnt a weboldalról, az előzmény megmaradt.');
+    } else {
+      arr.splice(arr.indexOf(row), 1);
+      confirming = null; flash('Véglegesen törölve.');
+    }
+  });
+  on('[data-close]','click', () => { editing = null; confirming = null; render(); });
+  on('[data-back]','click', e => {
+    if (e.target === e.currentTarget) { editing = null; confirming = null; render(); }
+  });
+
+  // --- űrlapmezők ---
+  on('[data-fk]','input', e => {
+    const k = e.target.dataset.fk;
+    const num = e.target.type === 'number' || k === 'vatRate';
+    D()[k] = e.target.type === 'checkbox' ? e.target.checked : num ? +e.target.value : e.target.value;
+    if ((k === 'title' || k === 'name') && editing.id === null) D().slug = slugify(D()[k]);
+    keepCaret(`[data-fk="${k}"]`, e.target.selectionStart ?? 0);
+  });
+  on('[data-multi]','change', e => {
+    const k = e.target.dataset.multi, v = +e.target.value, cur = D()[k] || [];
+    D()[k] = e.target.checked ? [...cur, v] : cur.filter(x => x !== v);
+    render();
+  });
+  on('[data-para]','input', e => { D().longDesc[+e.target.dataset.para] = e.target.value; });
+  on('[data-paradel]','click', e => { D().longDesc.splice(+e.currentTarget.dataset.paradel,1); render(); });
+  on('[data-paraadd]','click', () => { D().longDesc.push(''); render(); });
+
+  on('[data-save]','click', () => {
+    const { kind, id, draft } = editing, arr = COLL[kind].arr();
+    if (id === null) { draft.id = ++uid; arr.push(draft); flash(`Létrehozva: ${draft.title || draft.name}`); }
+    else { Object.assign(arr.find(x=>x.id===id), draft); flash('Mentve.'); }
+    editing = null;
+  });
+
+  // --- beosztás ---
+  const wire = (tag, map) => {
+    on(`[data-${tag}]`,'change', e => {
+      const [iso,bi,edge] = e.target.dataset[tag].split(':');
+      map()[+iso][+bi][edge === 's' ? 0 : 1] = MIN(e.target.value); render();
+    });
+    on(`[data-${tag}d]`,'click', e => {
+      const [iso,bi] = e.currentTarget.dataset[tag+'d'].split(':').map(Number);
+      map()[iso].splice(bi,1); render();
+    });
+    on(`[data-${tag}a]`,'click', e => {
+      const iso = +e.currentTarget.dataset[tag+'a'];
+      (map()[iso] = map()[iso] || []).push([540,1020]); render();
+    });
+  };
+  wire('ch', () => db.clinicHours);
+  wire('ph', () => (db.practitioners.find(x=>x.id===activePract) || db.practitioners[0]).hours);
+  const pp = document.getElementById('pp');
+  if (pp) pp.onchange = () => { activePract = +pp.value; render(); };
+
+  // --- szövegek / SEO / beállítások ---
+  on('[data-cp]','click', e => { contentPage = e.currentTarget.dataset.cp; render(); });
+  on('[data-ck]','input', e => { db.content.find(c=>c.key===e.target.dataset.ck).value = e.target.value; });
+  on('[data-csave]','click', () => flash('Szövegek mentve – a weboldalon azonnal élnek.'));
+
+  on('[data-seo]','input', e => {
+    const [i,f] = e.target.dataset.seo.split(':');
+    db.seo[+i][f] = e.target.value;
+    keepCaret(`[data-seo="${i}:${f}"]`, e.target.selectionStart ?? 0);
+  });
+  on('[data-seob]','change', e => { db.seo[+e.target.dataset.seob].noindex = e.target.checked; render(); });
+  on('[data-seosave]','click', () => flash('SEO mentve.'));
+
+  on('[data-setn]','input',  e => { db.settings[e.target.dataset.setn] = +e.target.value; });
+  on('[data-sett]','input',  e => { db.settings[e.target.dataset.sett] = e.target.value; });
+  on('[data-setb]','change', e => { db.settings[e.target.dataset.setb] = e.target.checked; render(); });
+  on('[data-ssave]','click', () => flash('Beállítások mentve.'));
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && (editing || confirming)) { editing = null; confirming = null; render(); }
+});
+render();
+</script>

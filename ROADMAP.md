@@ -11,6 +11,15 @@ működőképes, bemutatható állapot van.
 - [ ] Ha van éles adat: átköltöztető szkript (lásd `prisma/migrations_legacy/README.md`)
 
 ## 2. Admin CRUD
+- [x] Backend: `/api/admin/{services|categories|practitioners|rooms|passes}`
+      – lista, létrehozás, módosítás, archiválás, visszaállítás
+- [x] Zod validálás, admin jogosultság, auditnapló minden íráson
+- [x] Szövegek: `GET/PUT /api/admin/content`, publikus `GET /api/content`
+- [ ] Nuxt admin oldalak a `docs/prototipus-admin.html` szerint
+- [ ] Beosztás endpointok (ClinicHours, WorkingHours, TimeOff)
+- [ ] Beállítások endpoint (ClinicSettings)
+
+### Eredeti lista
 - [ ] Szakemberek: lista, felvétel, szerkesztés, archiválás, fotó feltöltés
 - [ ] Kezelések: ár, áfa, hossz, pufferek, előjegyzési idő, szoba-hozzárendelés
 - [ ] Kezelés-típusok: ikon, rövid leírás, felugró ablak bekezdései
@@ -28,12 +37,15 @@ A tervezett felület a `docs/prototipus-admin-beosztas.html`-ben látható.
       (így egy üres blokk nem tud üres oldalt eredményezni)
 
 ## 4. Foglalási folyamat backend
-- [ ] `GET /api/availability` – a `server/booking/availability.ts` fölé
-- [ ] `POST /api/appointments/hold` – tranzakcióban, `SELECT ... FOR UPDATE`,
-      `slotLock` beírásával
-- [ ] Szoba-kapacitás beépítése a motorba (metszet + szabad szoba keresés)
-- [ ] Lemondás: `slotLock` NULL-ra, bérlet-alkalom visszaírás
-- [ ] Cron: lejárt `HOLD` felszabadítása
+- [x] Szoba-kapacitás a motorban (`computeFreeSlotsWithRooms`, 7 új teszt)
+- [x] `GET /api/availability` – nyitvatartás ∩ beosztás, szobakiosztással
+- [x] `POST /api/appointments/hold` – tranzakció + `FOR UPDATE`, `slotLock`,
+      `roomSlotLock`, és a felkínálhatóság szerveroldali újraszámolása
+- [x] `POST /api/appointments/cancel` – zárolás feloldása, bérlet-alkalom
+      visszaírása `reversedAt`-tel
+- [x] `POST /api/cron/release-holds` – lejárt zárolások felszabadítása
+- [ ] Áttétel (reschedule)
+- [ ] E-mail visszaigazolás bekötése
 
 ## 5. Ügyfélfiók
 - [ ] Regisztráció + e-mail megerősítés
