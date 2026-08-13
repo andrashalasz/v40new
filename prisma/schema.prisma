@@ -1,8 +1,15 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// =============================================================================
+//  V40 Vital - adatmodell v2
+//  Időpontfoglalás + bankkártyás fizetés + bérletkezelés
+// =============================================================================
+//  KONVENCIÓK
+//  - Minden DateTime UTC-ben tárolódik. A Europe/Budapest konverzió az
+//    alkalmazás rétegben történik (nyári időszámítás miatt kötelező).
+//  - Napon belüli időpontok (nyitvatartás) éjfél óta eltelt PERCBEN, Int-ként.
+//    Így nincs időzóna-csapda az ismétlődő beosztásoknál.
+//  - Pénzösszegek: Int, bruttó, HUF (a forintnak nincs váltópénze).
+//    A nettó/áfa a vatRate-ből számolódik, nem tároljuk redundánsan.
+// =============================================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -13,44 +20,790 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================ FELHASZNÁLÓK ===================================
+
 enum Role {
   USER
+  STAFF
   ADMIN
 }
 
 model User {
-  id          Int                  @id @default(autoincrement())
-  email       String               @unique
-  password    String?
-  role        Role                 @default(USER)
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  emailVerifiedAt DateTime?
+  passwordHash    String?
+  role            Role      @default(USER)
+
+  lastName  String?
+  firstName String?
+  phone     String?
+
+  // GDPR
+  marketingConsentAt DateTime?
+  privacyAcceptedAt  DateTime?
+  anonymizedAt       DateTime? // törlési kérés: adat anonimizálva, számla marad
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments  Appointment[]
+  orders        Order[]
+  passes        CustomerPass[]
+  auditLogs      AuditLog[]
+  passwordResets PasswordReset[]
+  loginTokens    LoginToken[]
+
+  @@index([createdAt])
 }
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique // csak hash, soha nyers token
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ======================= SZOLGÁLTATÁSOK / KEZELÉSEK ==========================
+
+model ServiceCategory {
+  id        Int    @id @default(autoincrement())
+  slug      String @unique
+  name      String
+  sortOrder Int    @default(0)
+
+  /// Ikon a nyitóoldali kártyán
+  iconUrl String?
+  /// A kártyán megjelenő rövid szöveg
+  shortDesc String? @db.Text
+  /// A felugró ablak teljes leírása (bekezdésekre bontva)
+  longDesc  Json?
+  isActive  Boolean @default(true)
+
+  metaTitle       String?
+  metaDescription String? @db.Text
+
+  services Service[]
+}
+
+model Service {
+  id    Int    @id @default(autoincrement())
+  slug  String @unique // ELTÉR a v1-től: tárolt slug, nem a címből generált,
+  title String @unique // így a cím átírása nem törli az URL-t és a SEO-t
+  lead  String? @db.Text
+  desc  String  @db.Text
+
+  categoryId Int?
+  gender     String @default("Mindenki") // Mindenki | Férfi | Női
+
+  // --- árazás ---
+  priceGross      Int // bruttó HUF
+  vatRate         Int     @default(0) // 0 = adómentes egészségügyi szolg., 27 = esztétikai
+  vatExemptReason String? // pl. "TAM - Áfa tv. 85. § (1) c)"
+
+  // --- időzítés (percben) ---
+  durationMin      Int
+  bufferBeforeMin  Int @default(0)
+  bufferAfterMin   Int @default(0) // takarítás / előkészítés
+
+  // --- foglalhatóság ---
+  isActive         Boolean @default(true)
+  isBookableOnline Boolean @default(true) // pl. konzultáció után elérhető kezelések
+  requiresDeposit  Boolean @default(false)
+  depositGross     Int     @default(0) // ha csak előleget kérünk online
+  minLeadTimeHours Int     @default(24) // ennyivel előbb kell foglalni
+  maxLeadTimeDays  Int     @default(90) // ennyivel előre nyitott a naptár
+
+  picUrl    String?
+  sortOrder Int     @default(0)
+
+  // --- SEO ---
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImageUrl      String?
+  noindex         Boolean @default(false)
+
+  /// Nem törlünk: a régi foglalásoknak és számláknak hivatkozniuk kell rá
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category      ServiceCategory?      @relation(fields: [categoryId], references: [id])
+  practitioners ServicePractitioner[]
+  rooms         ServiceRoom[]
+  passTemplates PassTemplateService[]
+  appointments  Appointment[]
+  orderItems    OrderItem[]
+
+  @@index([categoryId])
+  @@index([isActive, isBookableOnline])
+}
+
+// ============================== SZAKEMBEREK ==================================
+
+model Practitioner {
+  id       Int     @id @default(autoincrement())
+  slug     String  @unique
+  name     String  @unique
+  titles   String? // "Dr.", "PhD" stb.
+  category String?
+  desc     String  @db.Text
+  picUrl   String?
+  isActive Boolean @default(true)
+
+  metaTitle       String?
+  metaDescription String? @db.Text
+
+  /// Nem törlünk, archiválunk – lásd Service.archivedAt
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services     ServicePractitioner[]
+  workingHours WorkingHours[]
+  timeOff      TimeOff[]
+  appointments Appointment[]
+}
+
+// Melyik szakember melyik kezelést végzi (és opcionálisan más időtartammal)
+model ServicePractitioner {
+  serviceId      Int
+  practitionerId Int
+  durationMin    Int? // override, ha eltér a szolgáltatás alapértékétől
+
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  practitioner Practitioner @relation(fields: [practitionerId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, practitionerId])
+}
+
+// Ismétlődő heti rendelési idő
+model WorkingHours {
+  id             Int @id @default(autoincrement())
+  practitionerId Int
+  weekday        Int // 1 = hétfő ... 7 = vasárnap (ISO)
+  startMinute    Int // 540 = 09:00
+  endMinute      Int // 1020 = 17:00
+
+  validFrom DateTime?
+  validTo   DateTime?
+
+  practitioner Practitioner @relation(fields: [practitionerId], references: [id], onDelete: Cascade)
+
+  @@index([practitionerId, weekday])
+}
+
+// Szabadság, betegség, egyedi zárás
+model TimeOff {
+  id             Int      @id @default(autoincrement())
+  practitionerId Int
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+
+  practitioner Practitioner @relation(fields: [practitionerId], references: [id], onDelete: Cascade)
+
+  @@index([practitionerId, startsAt, endsAt])
+}
+
+// Egész rendelőre érvényes zárás (ünnepnap), szakember nélkül
+model ClinicClosure {
+  id       Int      @id @default(autoincrement())
+  startsAt DateTime
+  endsAt   DateTime
+  reason   String?
+
+  @@index([startsAt, endsAt])
+}
+
+// =============================== FOGLALÁS ====================================
+
+enum AppointmentStatus {
+  HOLD // ideiglenes zárolás fizetés közben (lejár, ha nem fizet)
+  PENDING_PAYMENT
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum SettlementType {
+  ONLINE_CARD
+  PASS // bérletből levonva
+  ON_SITE // helyszíni fizetés
+  DEPOSIT_ONLY // online előleg + helyszíni maradék
+}
+
+model Appointment {
+  id        Int    @id @default(autoincrement())
+  publicRef String @unique // ügyfélnek mutatott azonosító, pl. "V40-8FQ2LM"
+
+  userId         Int
+  serviceId      Int
+  practitionerId Int
+  roomId         Int?
+
+  startsAt DateTime
+  endsAt   DateTime // szolgáltatás hossza; a puffer NEM része, külön számoljuk
+
+  status     AppointmentStatus @default(HOLD)
+  settlement SettlementType
+  holdUntil  DateTime? // HOLD státusz lejárata (jellemzően +15 perc)
+
+  // DB-szintű védelem a dupla foglalás ellen: "practitionerId:ISO-időpont".
+  // Lemondáskor NULL-ra állítjuk -> a MySQL több NULL-t megenged egy unique
+  // indexben, tehát a felszabadult idősáv azonnal újra foglalható. (Egy sima
+  // @@unique([practitionerId, startsAt]) itt hibás lenne: örökre blokkolná a
+  // lemondott idősávot.) Az átlapolódás-vizsgálat emellett tranzakcióban fut.
+  slotLock String? @unique @db.VarChar(64)
+
+  priceGross Int // a foglalás pillanatában érvényes ár (nem hivatkozás!)
+  vatRate    Int @default(0)
+
+  customerNote String? @db.Text
+  internalNote String? @db.Text
+
+  cancelledAt        DateTime?
+  cancelledByUserId  Int?
+  cancellationReason String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id])
+  service      Service         @relation(fields: [serviceId], references: [id])
+  practitioner Practitioner    @relation(fields: [practitionerId], references: [id])
+  room         Room?           @relation(fields: [roomId], references: [id])
+  orderItems   OrderItem[]
+  redemption   PassRedemption?
+
+  @@index([userId, startsAt])
+  @@index([status, holdUntil])
+  @@index([startsAt])
+}
+
+// ================================ BÉRLET =====================================
+
+model PassTemplate {
+  id    Int    @id @default(autoincrement())
+  slug  String @unique
+  title String @unique
+  desc  String @db.Text
+
+  priceGross Int
+  vatRate    Int     @default(0)
+  vatExemptReason String?
+
+  sessionCount Int? // null = korlátlan alkalom az érvényességi időn belül
+  validityDays Int // vásárlástól ennyi napig érvényes
+  transferable Boolean @default(false)
+
+  picUrl    String?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  metaTitle       String?
+  metaDescription String? @db.Text
+  archivedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  services   PassTemplateService[]
+  passes     CustomerPass[]
+  orderItems OrderItem[]
+}
+
+// A bérlet mely kezelésekre használható fel, és egy foglalás hány alkalmat visz
+model PassTemplateService {
+  passTemplateId  Int
+  serviceId       Int
+  sessionsPerUse  Int @default(1)
+
+  passTemplate PassTemplate @relation(fields: [passTemplateId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([passTemplateId, serviceId])
+}
+
+enum PassStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  EXHAUSTED
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
+model CustomerPass {
+  id   Int    @id @default(autoincrement())
+  code String @unique // helyszíni beváltáshoz is, pl. "V40-BER-3K9WPD"
+
+  userId         Int
+  passTemplateId Int
+  orderId        Int?
+
+  sessionsTotal     Int? // snapshot: a template később változhat
+  sessionsRemaining Int?
+  validFrom         DateTime
+  validUntil        DateTime
+  status            PassStatus @default(PENDING_PAYMENT)
+
+  // snapshot az árról a számlázás és a részleges visszatérítés miatt
+  purchasePriceGross Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id])
+  passTemplate PassTemplate     @relation(fields: [passTemplateId], references: [id])
+  order        Order?           @relation(fields: [orderId], references: [id])
+  redemptions  PassRedemption[]
+
+  @@index([userId, status])
+  @@index([status, validUntil])
+}
+
+model PassRedemption {
+  id             Int @id @default(autoincrement())
+  customerPassId Int
+  appointmentId  Int @unique // egy foglaláshoz egy levonás
+
+  sessionsUsed Int      @default(1)
+  redeemedAt   DateTime @default(now())
+
+  // lemondás esetén visszaírás; a rekord auditban megmarad
+  reversedAt     DateTime?
+  reversalReason String?
+
+  customerPass CustomerPass @relation(fields: [customerPassId], references: [id])
+  appointment  Appointment  @relation(fields: [appointmentId], references: [id])
+
+  @@index([customerPassId])
+}
+
+// ============================ RENDELÉS / FIZETÉS =============================
+
+enum OrderStatus {
+  NEW
+  PENDING // fizetési oldalra átirányítva
+  PAID
+  FAILED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum OrderItemKind {
+  SERVICE // egy konkrét kezelés (foglaláshoz kötve)
+  PASS // bérlet
+  DEPOSIT // előleg egy kezelésre
+}
+
+model Order {
+  id          Int    @id @default(autoincrement())
+  orderNumber String @unique // "V40-2026-000123"
+
+  userId Int
+  status OrderStatus @default(NEW)
+
+  totalGross Int
+  currency   String @default("HUF")
+
+  // számlázási adatok snapshotja
+  billingName       String?
+  billingTaxNumber  String?
+  billingCountry    String? @default("HU")
+  billingZip        String?
+  billingCity       String?
+  billingAddress    String?
+
+  termsAcceptedAt DateTime? // ÁSZF + elállási nyilatkozat elfogadása
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id])
+  items    OrderItem[]
+  payments Payment[]
+  invoices Invoice[]
+  passes   CustomerPass[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id      Int           @id @default(autoincrement())
+  orderId Int
+  kind    OrderItemKind
+
+  serviceId      Int?
+  passTemplateId Int?
+  appointmentId  Int?
+
+  titleSnapshot   String // számlához: a vásárlás pillanatában érvényes név
+  quantity        Int    @default(1)
+  unitPriceGross  Int
+  vatRate         Int    @default(0)
+  vatExemptReason String?
+
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  service      Service?      @relation(fields: [serviceId], references: [id])
+  passTemplate PassTemplate? @relation(fields: [passTemplateId], references: [id])
+  appointment  Appointment?  @relation(fields: [appointmentId], references: [id])
+
+  @@index([orderId])
+}
+
+enum PaymentProvider {
+  BARION
+  SIMPLEPAY
+  STRIPE
+  MOCK // fejlesztéshez
+  CASH
+  TRANSFER
+  HEALTH_FUND // egészségpénztár
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+}
+
+model Payment {
+  id      Int @id @default(autoincrement())
+  orderId Int
+
+  provider          PaymentProvider
+  providerPaymentId String? // Barion PaymentId / SimplePay transactionId
+  status            PaymentStatus   @default(INITIATED)
+
+  amountGross Int
+  currency    String @default("HUF")
+
+  // Idempotencia: ugyanaz a fizetési kísérlet kétszer ne induljon el
+  idempotencyKey String @unique
+
+  initiatedAt DateTime  @default(now())
+  paidAt      DateTime?
+  failReason  String?   @db.Text
+
+  refundedGross Int @default(0)
+
+  order  Order          @relation(fields: [orderId], references: [id])
+  events PaymentEvent[]
+
+  @@unique([provider, providerPaymentId])
+  @@index([orderId, status])
+}
+
+// Minden bejövő callback/webhook nyersen naplózva.
+// Enélkül egy fizetési vita eldönthetetlen, és az idempotencia sem garantálható.
+model PaymentEvent {
+  id        Int    @id @default(autoincrement())
+  paymentId Int?
+
+  provider          PaymentProvider
+  providerEventId   String? // ha a provider ad ilyet -> duplikátum szűrés
+  providerPaymentId String?
+  eventType         String
+
+  payload     Json
+  signatureOk Boolean   @default(false)
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  processError String?  @db.Text
+
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@unique([provider, providerEventId])
+  @@index([providerPaymentId])
+  @@index([processedAt])
+}
+
+enum InvoiceProvider {
+  SZAMLAZZHU
+  BILLINGO
+  MANUAL
+}
+
+model Invoice {
+  id      Int @id @default(autoincrement())
+  orderId Int
+
+  provider          InvoiceProvider
+  providerInvoiceId String?
+  invoiceNumber     String?         @unique
+  isStorno          Boolean         @default(false)
+  stornoOfId        Int?
+
+  totalGross Int
+  pdfUrl     String?
+  issuedAt   DateTime?
+  navStatus  String? // NAV Online Számla visszajelzés a szolgáltatótól
+
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+// ============================== TARTALOM =====================================
 
 model Blog {
-  id        Int       @id @default(autoincrement())  
-  title     String
-  slug      String    @unique
-  picUrl    String?
-  lead      String?   @db.LongText
-  createdAt DateTime
-  updatedAt DateTime
-  rows      Json?   
+  id     Int     @id @default(autoincrement())
+  title  String
+  slug   String  @unique
+  picUrl String?
+  lead   String? @db.LongText
+  rows   Json?
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now()) // v1-ben nem volt default -> mentési hiba
+  updatedAt   DateTime  @updatedAt
+
+  @@index([publishedAt])
 }
 
-model Product {
-  id          Int       @id @default(autoincrement())  
-  title       String   @unique
-  desc        String   @db.Text
-  type        String? 
-  gender      String  
-  price       Int
-  picUrl      String
-  time        String?
+// ============================ NAPLÓ / ÉRTESÍTÉS ==============================
+
+// Egészségügyi kontextus + pénzügyi műveletek: az auditálhatóság nem opcionális
+model AuditLog {
+  id       Int     @id @default(autoincrement())
+  userId   Int? // aki a műveletet végezte (admin is)
+  action   String // "appointment.cancel", "pass.redeem", "order.refund"
+  entity   String
+  entityId Int?
+  meta     Json?
+  ip       String?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }
 
-model Doctor {
-  id          Int       @id @default(autoincrement())  
-  name       String    @unique
-  category    String?
-  desc        String 
-  picUrl     String?
+enum NotificationChannel {
+  EMAIL
+  SMS
+}
+
+model NotificationLog {
+  id        Int                 @id @default(autoincrement())
+  channel   NotificationChannel
+  template  String // "booking.confirmed", "booking.reminder24h"
+  recipient String
+  entity    String?
+  entityId  Int?
+
+  sentAt   DateTime?
+  error    String?   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([template, entityId])
+}
+
+// ======================= BEÁLLÍTÁSOK / KAPACITÁS =============================
+
+/// Egyetlen sor (id = 1). Globális foglalási és marketing beállítások.
+model ClinicSettings {
+  id Int @id @default(1)
+
+  timezone           String @default("Europe/Budapest")
+  slotGranularityMin Int    @default(15)
+  holdMinutes        Int    @default(15)
+
+  defaultMinLeadTimeHours Int @default(24)
+  defaultMaxLeadTimeDays  Int @default(90)
+
+  freeCancellationHours   Int     @default(24)
+  allowOnlineCancellation Boolean @default(true)
+  allowOnlineReschedule   Boolean @default(true)
+
+  reminderHoursBefore Int     @default(24)
+  smsRemindersEnabled Boolean @default(false)
+
+  requireBuffersInsideHours Boolean @default(false)
+
+  // --- marketing / analitika: az azonosítók is adminból állíthatók ---
+  ga4MeasurementId String?
+  gtmContainerId   String?
+  metaPixelId      String?
+  /// Sütibanner nélkül a pixelek nem tölthetnek be (GDPR)
+  cookieBannerEnabled Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+/// A rendelő ismétlődő nyitvatartása: külső korlát a szakemberek beosztásán.
+/// A tényleges foglalhatóság a kettő metszete.
+model ClinicHours {
+  id          Int @id @default(autoincrement())
+  weekday     Int // ISO: 1 = hétfő ... 7 = vasárnap
+  startMinute Int
+  endMinute   Int
+
+  @@index([weekday])
+}
+
+/// Szoba / gép / kezelőágy. Ez adja a párhuzamos kapacitást.
+model Room {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  /// Nem törlünk, csak archiválunk: régi foglalásoknak meg kell maradnia
+  archivedAt DateTime?
+
+  services     ServiceRoom[]
+  appointments Appointment[]
+}
+
+model ServiceRoom {
+  serviceId Int
+  roomId    Int
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  room    Room    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, roomId])
+}
+
+// ============================ SZERKESZTHETŐ TARTALOM =========================
+//  Minden frontend-szöveg innen jön. A kódban csak alapértelmezés van, amit
+//  az itteni érték felülír -> a szerkesztés nem tud "kiürült" oldalt okozni.
+
+enum ContentType {
+  TEXT
+  RICHTEXT
+  IMAGE
+  URL
+  NUMBER
+}
+
+model ContentBlock {
+  id Int @id @default(autoincrement())
+
+  /// Gépi azonosító, pl. "home.hero.title"
+  key    String
+  locale String @default("hu")
+
+  /// Az admin felület csoportosításához és kereséséhez
+  page  String // "home", "kezelesek", "gyik", "footer" ...
+  group String? // "hero", "why", "cta" ...
+  label String // amit az admin lát: "Nyitóoldal – főcím"
+
+  type  ContentType @default(TEXT)
+  value String      @db.Text
+
+  updatedAt DateTime @updatedAt
+  updatedBy Int?
+
+  @@unique([key, locale])
+  @@index([page, group])
+}
+
+// ================================== SEO ======================================
+
+/// Statikus útvonalak meta-adatai. A dinamikus oldalak (kezelés, bérlet, blog)
+/// saját meta mezőket kapnak, mert a slug is náluk van.
+model SeoMeta {
+  id     Int    @id @default(autoincrement())
+  path   String // "/", "/kezelesek", "/gyik"
+  locale String @default("hu")
+
+  title          String?
+  description    String? @db.Text
+  ogTitle        String?
+  ogDescription  String? @db.Text
+  ogImageUrl     String?
+  canonicalUrl   String?
+  noindex        Boolean @default(false)
+  /// Strukturált adat (MedicalClinic, FAQPage, MedicalProcedure ...)
+  jsonLd         Json?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([path, locale])
+}
+
+/// Slug-változáskor 301-es átirányítás. Enélkül minden átnevezés SEO-t veszít.
+model Redirect {
+  id         Int      @id @default(autoincrement())
+  fromPath   String   @unique
+  toPath     String
+  statusCode Int      @default(301)
+  hitCount   Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+// ============================ MARKETING / GDPR ===============================
+
+enum ConsentCategory {
+  NECESSARY
+  ANALYTICS
+  MARKETING
+}
+
+/// A sütihozzájárulás bizonyítható naplózása. Egészségügyi oldalnál ez nem
+/// formalitás: a marketing pixelek engedély nélküli betöltése jogsértés.
+model ConsentLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  visitorId  String // anonim, süti alapú azonosító
+  categories Json // { necessary:true, analytics:true, marketing:false }
+  policyVersion String
+  userAgent  String?  @db.Text
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([visitorId])
+  @@index([createdAt])
+}
+
+/// Hírlevél / marketing feliratkozás, dupla opt-innel.
+model NewsletterSubscriber {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique
+  name          String?
+  confirmTokenHash String? @unique
+  confirmedAt   DateTime?
+  unsubscribedAt DateTime?
+  source        String? // "footer", "foglalas", "berlet"
+  createdAt     DateTime  @default(now())
+}
+
+// ============================ BEJELENTKEZÉS ==================================
+
+/// Jelszó nélküli belépés e-mailben küldött egyszer használatos linkkel.
+/// Így a foglaláshoz nem kell jelszót kitalálni, de fiók mégis létrejön.
+model LoginToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ip        String?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

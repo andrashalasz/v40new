@@ -28,3 +28,9 @@ public/uploads/*
 !public/uploads/.gitkeep
 
 /app/generated/prisma
+
+# Optimalizált képek kimenete
+public/optimized/
+
+# Prisma generált kliens
+/generated
