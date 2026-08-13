@@ -15,7 +15,13 @@ működőképes, bemutatható állapot van.
       – lista, létrehozás, módosítás, archiválás, visszaállítás
 - [x] Zod validálás, admin jogosultság, auditnapló minden íráson
 - [x] Szövegek: `GET/PUT /api/admin/content`, publikus `GET /api/content`
-- [ ] Nuxt admin oldalak a `docs/prototipus-admin.html` szerint
+- [x] Nuxt admin oldalak: kezelések, típusok, szakemberek, szobák, bérletek
+      (egy generikus komponens + öt vékony oldal), admin layout, vezérlőpult
+- [x] Kompatibilitási réteg: /api/products, /api/products/types, /api/doctors
+      az új modellekre – a publikus frontend változatlan maradt
+- [ ] A blog admin oldalai még saját, bemásolt oldalsávot használnak: át kell
+      őket tenni a layoutra (app/layouts/admin.vue)
+- [ ] Kép- és fotófeltöltés az admin űrlapokon (most URL-mező van)
 - [ ] Beosztás endpointok (ClinicHours, WorkingHours, TimeOff)
 - [ ] Beállítások endpoint (ClinicSettings)
 

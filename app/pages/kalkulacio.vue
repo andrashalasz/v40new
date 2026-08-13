@@ -47,7 +47,7 @@
                         longevity programról, kezelésekról,tanulmányokról és kezeléseink beszámolói
                     </p>
                     <NuxtLink 
-                        :to="`/szolgaltatas/${slugify(recommendedProduct?.title)}`"
+                        :to="`/szolgaltatas/${recommendedProduct?.slug}`"
                         class="w-full flex flex-col bg-white rounded-lg lg:flex-row justify-between">
                         <div class="flex flex-col lg:flex-row items-center lg:gap-6">
                             <NuxtImg :src="recommendedProduct?.picUrl" :alt="recommendedProduct?.title"
@@ -68,7 +68,7 @@
                                 Ft</p>
                             <NuxtLink
                                 class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
-                                :to="`/szolgaltatas/${slugify(recommendedProduct?.title)}`">
+                                :to="`/szolgaltatas/${recommendedProduct?.slug}`">
                                 Bővebben
                             </NuxtLink>
                         </div>

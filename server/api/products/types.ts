@@ -1,26 +1,26 @@
 import { prisma } from '~~/server/utils/prisma'
 
-export default defineEventHandler(async (event) => {
-  try {
-    // Lekérjük az egyedi típusokat, ahol a type nem null
-    const types = await prisma.product.findMany({
+/**
+ * KOMPATIBILITÁSI RÉTEG – /api/products/types
+ *
+ * A régi verzió a Product.type szabad szöveges mező distinct értékeit adta
+ * vissza. Mostantól a ServiceCategory tábla a forrás, de a válasz továbbra is
+ * egyszerű string tömb, hogy a Search.vue szűrője változatlan maradhasson.
+ *
+ * Csak azokat a típusokat adjuk vissza, amelyekhez van legalább egy élő,
+ * aktív kezelés – különben a szűrőben üres kategóriák jelennének meg.
+ */
+export default defineCachedEventHandler(
+  async () => {
+    const rows = await prisma.serviceCategory.findMany({
       where: {
-        type: {
-          not: null,
-        },
+        isActive: true,
+        services: { some: { archivedAt: null, isActive: true } },
       },
-      select: {
-        type: true,
-      },
-      distinct: ['type'],
+      select: { name: true },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     })
-
-    // Átalakítjuk egy egyszerű string tömbbé: ["típus1", "típus2"]
-    return types.map(item => item.type)
-  } catch (error) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: 'Nem sikerült lekérni a típusokat.',
-    })
-  }
-})
+    return rows.map((r) => r.name)
+  },
+  { maxAge: 120, name: 'product-types' },
+)

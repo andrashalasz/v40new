@@ -29,7 +29,7 @@ const slugify = (text) => {
                 </p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${slugify(blog.title)}`">
+                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${blog.slug}`">
                     <NuxtImg :src="blog.picUrl" :alt="blog.title"
                         class="h-[260px] object-cover rounded-[16px] mb-2" />
                     <div class="">

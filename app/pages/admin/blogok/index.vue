@@ -21,12 +21,12 @@
                 <NuxtLink to="/admin/blogok"
                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-medium text-sm">
                     Blogok</NuxtLink>
-                <NuxtLink to="/admin/termekek"
+                <NuxtLink to="/admin/kezelesek"
                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
-                    Termékek</NuxtLink>
-                <NuxtLink to="/admin/orvosok"
+                    Kezelések</NuxtLink>
+                <NuxtLink to="/admin/szakemberek"
                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
-                    Orvosok</NuxtLink>
+                    Szakemberek</NuxtLink>
             </nav>
         </aside>
 

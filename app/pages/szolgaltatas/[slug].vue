@@ -37,7 +37,7 @@
                 Prémium állapotfelmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat
             </p>
             <div class="grid grid-cols-1 gap-6">
-                <NuxtLink v-for="product in product.related" :key="product.id" :to="`/szolgaltatas/${slugify(product.title)}`"
+                <NuxtLink v-for="product in product.related" :key="product.id" :to="`/szolgaltatas/${product.slug}`"
                     class="w-full flex flex-col lg:flex-row justify-between">
                     <div class="flex flex-col lg:flex-row items-center gap-6">
                         <NuxtImg :src="product.picUrl" :alt="product.title"
@@ -58,7 +58,7 @@
                         </p>
                         <NuxtLink
                             class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
-                            :to="`/szolgaltatas/${slugify(product.title)}`">
+                            :to="`/szolgaltatas/${product.slug}`">
                             Bővebben
                         </NuxtLink>
                     </div>
