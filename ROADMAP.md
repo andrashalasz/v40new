@@ -50,8 +50,15 @@ A tervezett felület a `docs/prototipus-admin-beosztas.html`-ben látható.
 - [x] `POST /api/appointments/cancel` – zárolás feloldása, bérlet-alkalom
       visszaírása `reversedAt`-tel
 - [x] `POST /api/cron/release-holds` – lejárt zárolások felszabadítása
+- [x] Foglalási folyamat felület: /foglalas/[slug], háromlépéses, a valódi
+      /api/availability és /api/appointments/hold endpointokra kötve
+- [x] Az /idopont oldalról eltűnt a külső Swazy widget, helyette kezelésválasztás
+- [x] /berletek publikus katalógus, /fiok ügyfélfiók lemondással
+- [x] Háromféle rendezés: helyszíni, bérletből (tranzakción belüli levonással),
+      kártya (a Barion élesítéséig fenntartott zárolással)
 - [ ] Áttétel (reschedule)
 - [ ] E-mail visszaigazolás bekötése
+- [ ] Bérlet online megvásárlása (a Barion után)
 
 ## 5. Ügyfélfiók
 - [ ] Regisztráció + e-mail megerősítés

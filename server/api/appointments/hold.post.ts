@@ -28,6 +28,11 @@ const body = z.object({
   serviceId: z.number().int().positive(),
   practitionerId: z.number().int().positive(),
   startsAt: z.coerce.date(),
+  // Háromféle rendezés van, és nem ugyanaz a végállapotuk:
+  //  ONLINE_CARD -> HOLD, a fizetésre várva (lejár, ha nem fizet)
+  //  PASS        -> azonnal CONFIRMED, egy alkalom levonva a bérletből
+  //  ON_SITE     -> azonnal CONFIRMED, a díj a rendelőben fizetendő
+  settlement: z.enum(['ONLINE_CARD', 'PASS', 'ON_SITE']).default('ONLINE_CARD'),
   customer: z
     .object({
       lastName: z.string().min(1).max(100),
@@ -59,7 +64,7 @@ export default defineEventHandler(async (event) => {
       data: { fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join('.'), i.message])) },
     })
   }
-  const { serviceId, practitionerId, startsAt, customer, note } = parsed.data
+  const { serviceId, practitionerId, startsAt, customer, note, settlement } = parsed.data
 
   const session = await getUserSession(event)
   const sessionUserId = (session?.user as { id?: number } | undefined)?.id
@@ -207,8 +212,37 @@ export default defineEventHandler(async (event) => {
           throw createError({ statusCode: 409, statusMessage: 'A szoba időközben foglalt lett.' })
         }
 
+        // --- bérletből fizetés: az alkalom keresése és levonása -----------
+        // A tranzakción BELÜL, hogy két párhuzamos foglalás ne vonhassa le
+        // ugyanazt a maradék alkalmat.
+        let pass: { id: number; sessionsRemaining: number | null } | null = null
+        if (settlement === 'PASS') {
+          const covering = await tx.customerPass.findFirst({
+            where: {
+              userId: userId!,
+              status: 'ACTIVE',
+              validFrom: { lte: startsAt },
+              validUntil: { gte: startsAt },
+              OR: [{ sessionsRemaining: { gt: 0 } }, { sessionsRemaining: null }],
+              passTemplate: { services: { some: { serviceId } } },
+            },
+            // A leghamarabb lejáró bérletet használjuk fel először, hogy ne
+            // veszítsen el az ügyfél alkalmat.
+            orderBy: { validUntil: 'asc' },
+            select: { id: true, sessionsRemaining: true },
+          })
+          if (!covering) {
+            throw createError({
+              statusCode: 409,
+              statusMessage: 'Nincs erre a kezelésre érvényes, felhasználható bérleted.',
+            })
+          }
+          pass = covering
+        }
+
         // --- 2. réteg: egyedi kulcsok ------------------------------------
-        return tx.appointment.create({
+        const confirmed = settlement !== 'ONLINE_CARD'
+        const appointment = await tx.appointment.create({
           data: {
             publicRef: publicRef(),
             userId: userId!,
@@ -217,9 +251,9 @@ export default defineEventHandler(async (event) => {
             roomId,
             startsAt,
             endsAt,
-            status: 'HOLD',
-            settlement: 'ONLINE_CARD',
-            holdUntil,
+            status: confirmed ? 'CONFIRMED' : 'HOLD',
+            settlement,
+            holdUntil: confirmed ? null : holdUntil,
             slotLock: `${practitionerId}:${iso}`,
             roomSlotLock: roomId !== null ? `${roomId}:${iso}` : null,
             priceGross: service.priceGross,
@@ -228,11 +262,49 @@ export default defineEventHandler(async (event) => {
           },
           select: { id: true, publicRef: true, startsAt: true, endsAt: true, holdUntil: true },
         })
+
+        if (pass) {
+          const sessionsPerUse =
+            (
+              await tx.passTemplateService.findFirst({
+                where: { serviceId, passTemplate: { passes: { some: { id: pass.id } } } },
+                select: { sessionsPerUse: true },
+              })
+            )?.sessionsPerUse ?? 1
+
+          await tx.passRedemption.create({
+            data: {
+              customerPassId: pass.id,
+              appointmentId: appointment.id,
+              sessionsUsed: sessionsPerUse,
+            },
+          })
+
+          if (pass.sessionsRemaining !== null) {
+            const left = pass.sessionsRemaining - sessionsPerUse
+            if (left < 0) {
+              throw createError({
+                statusCode: 409,
+                statusMessage: 'A bérleten nincs elég maradék alkalom ehhez a kezeléshez.',
+              })
+            }
+            await tx.customerPass.update({
+              where: { id: pass.id },
+              data: {
+                sessionsRemaining: left,
+                status: left === 0 ? 'EXHAUSTED' : 'ACTIVE',
+              },
+            })
+          }
+        }
+
+        return appointment
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 10_000 },
     )
 
-    await audit(event, userId ?? null, 'appointment.hold', 'Appointment', appointment.id, {
+    await audit(event, userId ?? null, `appointment.${settlement.toLowerCase()}`, 'Appointment', appointment.id, {
+      settlement,
       serviceId,
       practitionerId,
       roomId,
@@ -247,6 +319,9 @@ export default defineEventHandler(async (event) => {
       holdUntil: appointment.holdUntil,
       priceGross: service.priceGross,
       holdMinutes,
+      settlement,
+      // ONLINE_CARD esetén a kliensnek még a fizetésre kell mennie
+      needsPayment: settlement === 'ONLINE_CARD',
     }
   } catch (err) {
     // Ha a zárolás valamiért átengedte, az egyedi kulcs itt fogja meg.

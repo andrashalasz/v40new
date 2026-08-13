@@ -6,12 +6,14 @@
 
         <div class="hidden lg:flex items-center gap-10">
             <NuxtLink to="/kezelesek" class="dm-sans text-[#171008] text-[16px]">Kezelések</NuxtLink>
+            <NuxtLink to="/berletek" class="dm-sans text-[#171008] text-[16px]">Bérletek</NuxtLink>
             <NuxtLink to="/longevity" class="dm-sans text-[#171008] text-[16px]">Longevity</NuxtLink>
             <NuxtLink to="/kalkulacio" class="dm-sans text-[#171008] text-[16px]">Navigátor</NuxtLink>
             <NuxtLink to="/rolunk" class="dm-sans text-[#171008] text-[16px]">Rólunk</NuxtLink>
             <NuxtLink to="/gyik" class="dm-sans text-[#171008] text-[16px]">GYIK</NuxtLink>
             <NuxtLink to="/blogok" class="dm-sans text-[#171008] text-[16px]">Blog</NuxtLink>
             <NuxtLink to="/kapcsolat" class="dm-sans text-[#171008] text-[16px]">Kapcsolat</NuxtLink>
+            <NuxtLink to="/fiok" class="dm-sans text-[#171008] text-[16px]">Fiókom</NuxtLink>
             
         </div>
 
@@ -29,6 +31,10 @@
                 class="absolute top-full left-0 w-full bg-white border-t border-gray-100 shadow-xl lg:hidden flex flex-col p-6 gap-6">
                 <NuxtLink @click="isMenuOpen = false" to="/kezelesek"
                     class="dm-sans text-[#171008] text-[18px] font-medium">Szolgáltatások</NuxtLink>
+                <NuxtLink @click="isMenuOpen = false" to="/berletek"
+                    class="dm-sans text-[#171008] text-[18px] font-medium">Bérletek</NuxtLink>
+                <NuxtLink @click="isMenuOpen = false" to="/fiok"
+                    class="dm-sans text-[#171008] text-[18px] font-medium">Fiókom</NuxtLink>
                 <NuxtLink @click="isMenuOpen = false" to="/kalkulacio"
                     class="dm-sans text-[#171008] text-[18px] font-medium">Navigátor</NuxtLink>
                 <NuxtLink @click="isMenuOpen = false" to="/blogok"

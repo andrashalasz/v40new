@@ -18,16 +18,12 @@
                 </div>
                 <div class="w-full flex flex-col gap-4 lg:gap-0 lg:flex-row lg:items-center lg:justify-between">
                     <p class="dm-sans font-bold text-[#171008] text-[28px] lg:text-[32px]">{{ new Intl.NumberFormat('hu-HU').format(product.product.price) }} Ft</p>
-                    <button @click="handleBooking(product.product.title)"
-                        class="flex-1 lg:flex-none bg-[#153131] text-center rounded-lg px-8 py-4 dm-sans text-[#F4F4F0] font-medium transition-all"
-                        >
+                    <NuxtLink :to="`/foglalas/${product.product.slug}`"
+                        class="flex-1 lg:flex-none bg-[#153131] text-center rounded-lg px-8 py-4 dm-sans text-[#F4F4F0] font-medium transition-all">
                         Időpontfoglalás
-                    </button>
+                    </NuxtLink>
                 </div>
             </div>
-        </div>
-        <div v-if="showBooking" class="w-full max-w-[1440px] mx-auto p-4 flex flex-col mt-10 lg:px-0">
-            <swazy-booking  business-id="d5ca3d81-724b-4cc7-bb84-32a2630dc38a"></swazy-booking>
         </div>
         <div v-if="product.related && product.related.length > 0" class="w-full max-w-[1440px] mx-auto p-4 flex flex-col mt-20 lg:mt-40 lg:px-0">
             <h1 class="text-[28px] lg:text-[48px] dm-sans font-bold mb-4 text-[#171008]">
@@ -71,7 +67,6 @@
 </template>
 
 <script setup>
-const showBooking = ref(false)
 
 const route = useRoute()
 const { data: product } = await useFetch('/api/products', {
@@ -90,12 +85,4 @@ const slugify = (text) => {
         .replace(/--+/g, '-');
 }
 
-const handleBooking = (title) => {
-    if (title === 'Anyajegyvizsgálat FotoFinderrel®') {
-        // Külső oldal megnyitása új lapon
-        window.open('https://www.anyajegyklinika.hu/', '_blank');
-    } else {
-        showBooking.value = true;
-    }
-}
 </script>

@@ -3,21 +3,10 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
 
-  vue: {
-    compilerOptions: {
-      // Itt mondjuk meg a Vue-nak, hogy ne keressen Swazy nevű Vue fájlt
-      isCustomElement: (tag) => tag.startsWith('swazy-')
-    }
-  },
   app: {
     head: {
-      script: [
-        { 
-          src: 'https://api.swazy.app/swazy-booking.js', 
-          defer: true 
-        }
-      ]
-    }
+      htmlAttrs: { lang: 'hu' },
+    },
   },
 
   // A port a fejlesztői szerver beállítása, nem Nitro-opció. A korábbi
