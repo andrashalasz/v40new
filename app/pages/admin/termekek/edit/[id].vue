@@ -90,6 +90,8 @@
 </template>
 
 <script setup>
+definePageMeta({ middleware: ["admin"] })
+
 definePageMeta({ layout: false });
 
 const route = useRoute();

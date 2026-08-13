@@ -41,6 +41,8 @@
 </template>
 
 <script setup>
+definePageMeta({ middleware: ["admin"] })
+
 const router = useRouter();
 const submitting = ref(false);
 const selectedFile = ref(null);

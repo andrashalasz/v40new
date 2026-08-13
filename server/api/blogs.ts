@@ -24,11 +24,12 @@ const saveAsWebp = async (file: any) => {
   const filePath = path.join(uploadDir, fileName);
 
   await sharp(file.data)
-    .resize(1200, null, {维护: true, withoutEnlargement: true })
+    .resize(1200, null, { fit: 'inside', withoutEnlargement: true })
     .webp({ quality: 80 })
     .toFile(filePath);
 
-  return `https://v40vital.hu/uploads/blogs/${fileName}`;
+  // Relativ URL: igy dev/staging/eles kornyezetben is helyes
+  return `/uploads/blogs/${fileName}`;
 };
 
 // Segédfüggvény a fájl törléséhez a tárhelyről

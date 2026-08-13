@@ -35,6 +35,8 @@
 </template>
 
 <script setup>
+definePageMeta({ middleware: ["admin"] })
+
 const title = ref("");
 const lead = ref("");
 const description = ref("");

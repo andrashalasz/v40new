@@ -59,7 +59,7 @@ export default defineEventHandler(async (event: H3Event) => {
         })
         .toFile(filePath);
 
-      return `https://v40vital.hu/uploads/${fileName}`;
+      return `/uploads/${fileName}`;
     };
 
     const cardImageUrl = await processAndSaveAsWebp(cardFile);

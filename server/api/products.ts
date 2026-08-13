@@ -25,11 +25,12 @@ const saveAsWebp = async (file: any) => {
   const filePath = path.join(uploadDir, fileName);
 
   await sharp(file.data)
-    .resize(1000, null, {维护: true, withoutEnlargement: true }) // Termékeknek elég az 1000px
+    .resize(1000, null, { fit: 'inside', withoutEnlargement: true }) // Termékeknek elég az 1000px
     .webp({ quality: 80 })
     .toFile(filePath);
 
-  return `https://v40vital.hu/uploads/products/${fileName}`;
+  // Relativ URL: igy dev/staging/eles kornyezetben is helyes
+  return `/uploads/products/${fileName}`;
 };
 
 const deletePhysicalFile = async (fullUrl: string | null) => {
@@ -122,7 +123,7 @@ export default defineEventHandler(async (event: H3Event) => {
         title: getField("title") || "",
         desc: getField("desc") || "",
         type: getField("type") || "",
-        price: Number(getField("price")) || "",
+        price: Number(getField("price")) || 0,
         time: getField("time") || "",
         picUrl: picUrl,
         gender: getField("gender") || "",

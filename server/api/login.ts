@@ -1,7 +1,8 @@
-import { PrismaClient } from '@prisma/client'
+// A megosztott peldanyt hasznaljuk, kulon PrismaClient nem nyilik
+// import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient()
+import { prisma } from './utils/prisma'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event)
@@ -22,6 +23,12 @@ export default defineEventHandler(async (event) => {
   }
 
   // Jelszó összehasonlítása
+  // A User.password nullable (jelszo nelkuli, e-mailes belepes is lehet),
+  // ezert bcrypt.compare ele explicit ellenorzes kell
+  if (!user.password) {
+    throw createError({ statusCode: 401, statusMessage: 'Hibás e-mail vagy jelszó!' })
+  }
+
   const isValid = await bcrypt.compare(password, user.password)
 
   if (!isValid) {

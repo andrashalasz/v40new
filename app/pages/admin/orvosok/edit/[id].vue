@@ -46,6 +46,8 @@
 </template>
 
 <script setup>
+definePageMeta({ middleware: ["admin"] })
+
 const route = useRoute();
 const router = useRouter();
 const pending = ref(true);

@@ -16,7 +16,8 @@ const saveAsWebp = async (file: any) => {
     .webp({ quality: 80 })
     .toFile(filePath);
 
-  return `https://v40vital.hu/uploads/doctors/${fileName}`;
+  // Relativ URL: igy dev/staging/eles kornyezetben is helyes
+  return `/uploads/doctors/${fileName}`;
 };
 
 const deletePhysicalFile = async (url: string | null) => {

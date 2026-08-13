@@ -19,8 +19,8 @@ RUN npx prisma generate
 # Építés (Nuxt build)
 RUN npm run build
 
-EXPOSE 3000
+EXPOSE 3001
 
 # Ha dev módban akarod futtatni Dockerben (hot reload-dal), akkor maradjon a dev.
 # Ha élesre szánod, akkor: CMD ["node", ".output/server/index.mjs"]
-CMD ["npm", "run dev"]
+CMD ["node", ".output/server/index.mjs"]
