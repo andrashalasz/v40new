@@ -9,7 +9,7 @@
         <div class="absolute inset-0 bg-cover bg-top blur-md scale-105" :style="{
             backgroundImage: `url('/banner1.png')`,
             maskImage: 'linear-gradient(to top, black 0%, transparent 40%)',
-            webkitMaskImage: 'linear-gradient(to top, black 0%, transparent 40%)'
+            WebkitMaskImage: 'linear-gradient(to top, black 0%, transparent 40%)'
         }">
         </div>
 

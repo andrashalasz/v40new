@@ -7,7 +7,7 @@ import sharp from "sharp";
 export default defineEventHandler(async (event: H3Event) => {
   // 1. Jogosultság ellenőrzése
   const session = await getUserSession(event);
-  if (!session || session.user.role !== "ADMIN") {
+  if (session?.user?.role !== "ADMIN") {
     throw createError({ statusCode: 401, message: "Nem vagy admin!" });
   }
 

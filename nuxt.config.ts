@@ -20,12 +20,25 @@ export default defineNuxtConfig({
     }
   },
 
-   nitro: {
+  nitro: {
     port: 3001,
+    // Az `externals.include` nem létező opció volt (a típusellenőrzés fogta ki).
+    // A Prisma kliens külső modulként kezelése a `external` listával történik –
+    // így a query engine binárisa nem kerül bele a bundle-be.
     externals: {
       trace: false,
-      include: ['@prisma/client']
-    }
+      external: ['@prisma/client', '.prisma/client'],
+    },
+  },
+
+  typescript: {
+    // A tesztfájl `./availability.ts` alakban importál, mert a node
+    // --experimental-strip-types futtatásához a kiterjesztés kötelező.
+    tsConfig: {
+      compilerOptions: {
+        allowImportingTsExtensions: true,
+      },
+    },
   },
 
   modules: [

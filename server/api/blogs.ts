@@ -67,7 +67,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
   // --- Admin jogosultság ellenőrzése a módosító műveletekhez ---
   const session = await getUserSession(event);
-  if (!session || session.user.role !== "ADMIN") {
+  if (session?.user?.role !== "ADMIN") {
     throw createError({ statusCode: 401, message: "Nincs jogosultságod!" });
   }
 

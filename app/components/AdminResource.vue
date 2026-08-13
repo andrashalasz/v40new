@@ -59,24 +59,34 @@ const archived = computed(() => items.value.filter((r) => r.archivedAt))
 
 function optionsFor(f: Field) {
   if (f.options) return f.options
-  if (!f.optionsFrom) return []
-  const rows = refData.value?.[f.optionsFrom] ?? []
+  // Külön lokális változó: a `f.optionsFrom` szűkítése önmagában nem élte túl
+  // az indexelést, mert a prop-ból származó objektum írható.
+  const src = f.optionsFrom
+  if (!src) return []
+  const rows = refData.value?.[src] ?? []
   const label = f.optionsLabel ?? 'name'
   return rows
     .filter((r) => !r.archivedAt)
     .map((r) => ({ value: r.id as number, label: String(r[label]) }))
 }
 
-/** A kapcsolt rekordokból a *Ids tömb – az űrlap ezt szerkeszti. */
-function idsFrom(row: Row, key: string) {
-  const map: Record<string, [string, string]> = {
-    roomIds: ['rooms', 'roomId'],
-    practitionerIds: ['practitioners', 'practitionerId'],
-    serviceIds: ['services', 'serviceId'],
-  }
-  const [relKey, idKey] = map[key] ?? []
-  if (!relKey) return []
-  return ((row[relKey] as Row[]) ?? []).map((j) => j[idKey] as number)
+/**
+ * A kapcsolt rekordokból a *Ids tömb – az űrlap ezt szerkeszti.
+ *
+ * A kapcsolótáblák neve és az idegen kulcs mezőneve nem vezethető le a
+ * *Ids kulcsból, ezért explicit leképezés van. A `noUncheckedIndexedAccess`
+ * miatt a destrukturálás `string | undefined`-ot ad, ezért egyben ellenőrzünk.
+ */
+const JOIN_MAP: Record<string, { rel: string; fk: string }> = {
+  roomIds: { rel: 'rooms', fk: 'roomId' },
+  practitionerIds: { rel: 'practitioners', fk: 'practitionerId' },
+  serviceIds: { rel: 'services', fk: 'serviceId' },
+}
+
+function idsFrom(row: Row, key: string): number[] {
+  const m = JOIN_MAP[key]
+  if (!m) return []
+  return ((row[m.rel] as Row[] | undefined) ?? []).map((j) => j[m.fk] as number)
 }
 
 function openNew() {
