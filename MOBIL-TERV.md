@@ -87,3 +87,44 @@ Az egészségügyi adat a GDPR 9. cikke szerint **különleges adat**:
 2. **Nyelvek**: az MVP induljon csak magyarul, vagy már három nyelven?
 3. **Az orvosi nézet** pontos tartalma: milyen Health-adatokat lásson az orvos,
    és milyen bontásban (napi, heti trend, riasztási küszöb)?
+
+---
+
+## Az orvosi nézet (kész, demóadattal kipróbálható)
+
+**Elérés:** admin → Ügyfelek → „Egészségügyi adatok"
+(`/admin/paciensek/<id>/egeszseg`). Staff mindenkit lát; orvos csak a
+hozzárendelt páciensét. A betekintés naplózott.
+
+**Négy kategória** (alvás, mozgás/fittség, szív és keringés, testösszetétel),
+18 méréssel. Bővíthető: elég a `server/health/catalog.ts` tömbjéhez hozzáadni
+egy kategóriát – de új natív build és store-engedély is kell hozzá.
+
+**Amit az orvos csinálhat:**
+
+- időszak váltása (30 nap / 3 hónap / 6 hónap / 1 év),
+- kategóriánkénti váltás,
+- trend: az időszak második felének eltérése az elsőtől,
+- **kezelés előtti/utáni összehasonlítás**: kiválaszt egy megtörtént kezelést,
+  és 7 / 14 / 30 napos ablakban látja az átlagot előtte és utána, az eltérést
+  abszolút és százalékos alakban, valamint azt, hány napra van adat.
+
+**Amit szándékosan NEM csinál:** nem minősít („javult / romlott"), nem
+színkódol, és nem javasol kezelést. Csak leír. Ez nem óvatoskodás: az
+értelmezés pillanatában a szoftver orvostechnikai eszközzé válna (EU MDR,
+Rule 11), ami engedélyeztetési kötelezettséget vonna maga után.
+
+**Demó adat** a felület kipróbálásához (nem éles):
+
+```bash
+npx tsx scripts/seed-health-demo.ts <email>
+```
+
+## Ami az egészségügyi részből még hátravan
+
+- **A telefonos oldal**: HealthKit és Health Connect beolvasás, napi
+  összesítés, a hozzájárulás-kérő képernyő. A szerveroldal (katalógus,
+  hozzájárulás, szinkron) kész és tesztelhető.
+- **Store-engedélyek**: Google Play health declaration, Apple HealthKit
+  indoklás – érdemes már az MVP beadásakor elindítani, mert hetekig tart.
+- **DPIA** (adatvédelmi hatásvizsgálat) és a tájékoztató szövegek.
