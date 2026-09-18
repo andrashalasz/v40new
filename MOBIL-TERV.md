@@ -97,7 +97,7 @@ Az egészségügyi adat a GDPR 9. cikke szerint **különleges adat**:
 hozzárendelt páciensét. A betekintés naplózott.
 
 **Négy kategória** (alvás, mozgás/fittség, szív és keringés, testösszetétel),
-18 méréssel. Bővíthető: elég a `server/health/catalog.ts` tömbjéhez hozzáadni
+19 méréssel. Bővíthető: elég a `server/health/catalog.ts` tömbjéhez hozzáadni
 egy kategóriát – de új natív build és store-engedély is kell hozzá.
 
 **Amit az orvos csinálhat:**
