@@ -65,12 +65,11 @@
         "@kingstinct/react-native-healthkit",
         {
           "NSHealthShareUsageDescription": "A V40 Vital az alvási, mozgási, szív- és testösszetételi adataidat mutatja meg a kezelőorvosodnak, hogy a kezelésedet a valós állapotodhoz igazítsa. Bármikor visszavonhatod.",
-          "NSHealthUpdateUsageDescription": false,
+          "NSHealthUpdateUsageDescription": "A V40 Vital nem módosítja és nem írja felül az Egészség alkalmazásban tárolt adataidat – kizárólag olvassa azokat, az általad engedélyezett körben.",
           "background": false
         }
       ],
       "react-native-health-connect",
-      "expo-build-properties",
       [
         "expo-build-properties",
         {
