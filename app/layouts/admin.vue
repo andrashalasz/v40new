@@ -11,10 +11,20 @@ const route = useRoute()
 const role = computed(() => (user.value as { role?: string })?.role ?? '')
 const isStaff = computed(() => ['ADMIN', 'STAFF', 'DOCTOR'].includes(role.value))
 const isDoctor = computed(() => role.value === 'DOCTOR')
-// Orvosnak csak a szakvélemény-menüpont látszik.
+// Az orvos szűkített menüt kap: csak a saját munkájához tartozó oldalakat.
+// A pácienslista nélkül korábban nem volt útja az egészségügyi adatokhoz –
+// csak a szakvélemény-oldal látszott, ahonnan nem vezetett tovább semmi.
 const visibleGroups = computed(() =>
   isDoctor.value
-    ? [{ label: 'Munka', items: [{ to: '/admin/szakvelemenyek', label: 'Szakvélemények', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8' }] }]
+    ? [
+        {
+          label: 'Munka',
+          items: [
+            { to: '/admin/paciensek', label: 'Pácienseim', icon: 'M17 21v-2a4 4 0 0 0-3-3.87M9 21v-2a4 4 0 0 1 3-3.87M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+            { to: '/admin/szakvelemenyek', label: 'Szakvélemények', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8' },
+          ],
+        },
+      ]
     : GROUPS,
 )
 

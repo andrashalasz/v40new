@@ -32,6 +32,7 @@ export const de: Strings = {
   'treatments.book': 'Termin wählen',
   'treatments.vatIncluded': 'inkl. 27 % MwSt.',
   'treatments.vatExempt': 'umsatzsteuerfreie Gesundheitsleistung',
+  'treatments.priceOnRequest': 'Preis auf Anfrage',
 
   'booking.title': 'Termin buchen',
   'booking.loadingService': 'Behandlung wird geladen…',

@@ -32,6 +32,7 @@ export const en: Strings = {
   'treatments.book': 'Choose a time',
   'treatments.vatIncluded': 'incl. 27% VAT',
   'treatments.vatExempt': 'VAT-exempt healthcare service',
+  'treatments.priceOnRequest': 'Price on request',
 
   'booking.title': 'Book an appointment',
   'booking.loadingService': 'Loading treatment…',

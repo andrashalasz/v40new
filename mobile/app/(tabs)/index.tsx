@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { router } from 'expo-router'
 import { Image } from 'expo-image'
 import { useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
 import { getBaseUrl } from '../../src/api/baseUrl'
 import { useI18n } from '../../src/i18n'
@@ -88,7 +88,19 @@ export default function TreatmentsScreen() {
       onRefresh={() => void services.refetch()}
       showsVerticalScrollIndicator={false}
       ListHeaderComponent={
-        <View style={st.chips}>
+        // VÍZSZINTESEN görgethető sor, nem tördelt rács. Tizenöt kategória
+        // tördelve a képernyő felét elvitte, mielőtt egyetlen kezelés is
+        // látszott volna – telefonon ez használhatatlan.
+        //
+        // A negatív margó + belső térköz azért kell, hogy a sor a kártyák
+        // széléig fusson (így látszik, hogy van még oldalra), de az első és az
+        // utolsó elem mégis a szokásos margóban álljon.
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={st.chipsRow}
+          contentContainerStyle={st.chipsContent}
+        >
           {chips.map((c) => (
             <Chip
               key={c.value || 'all'}
@@ -97,7 +109,7 @@ export default function TreatmentsScreen() {
               onPress={() => setFilter(c.value)}
             />
           ))}
-        </View>
+        </ScrollView>
       }
       ListEmptyComponent={<Empty text={t('treatments.empty')} />}
       renderItem={({ item }) => <ServiceCard service={item} />}
@@ -148,18 +160,24 @@ function ServiceCard({ service }: { service: Service }) {
             {!!service.type && <Tag text={service.type} />}
           </View>
 
+          {/* Az ár és a gomb EGYMÁS ALATT, nem egymás mellett.
+              Telefonon a kettő egy sorban nem fért el: az áfa-magyarázat három
+              sorba tört, és a gombhoz préselődött. Egymás alatt mindkettő
+              olvasható, a gomb pedig teljes szélességű érintési célpont. */}
           <View style={st.footer}>
-            <View style={{ flexShrink: 1 }}>
-              <Text style={type.price}>{fmt.price(service.price)}</Text>
+            <Text style={type.price}>
+              {service.price > 0 ? fmt.price(service.price) : t('treatments.priceOnRequest')}
+            </Text>
+            {service.price > 0 && (
               <Text style={type.caption}>
                 {service.vatRate ? t('treatments.vatIncluded') : t('treatments.vatExempt')}
               </Text>
-            </View>
+            )}
+          </View>
 
-            <View style={st.cta}>
-              <Text style={st.ctaText}>{t('treatments.book')}</Text>
-              <Feather name="arrow-right" size={16} color={colors.onInk} />
-            </View>
+          <View style={st.cta}>
+            <Text style={st.ctaText}>{t('treatments.book')}</Text>
+            <Feather name="arrow-right" size={16} color={colors.onInk} />
           </View>
         </View>
       </Pressable>
@@ -169,32 +187,24 @@ function ServiceCard({ service }: { service: Service }) {
 
 const st = StyleSheet.create({
   page: { padding: spacing.md, paddingBottom: spacing.xxl },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
+  chipsRow: { marginHorizontal: -spacing.md, marginBottom: spacing.md },
+  chipsContent: { paddingHorizontal: spacing.md, gap: spacing.sm },
   image: { width: '100%', height: 168, backgroundColor: colors.chip },
   body: { padding: spacing.lg },
   desc: { marginTop: 6 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
+  footer: { marginTop: spacing.lg },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     backgroundColor: colors.ink,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    minHeight: 48,
+    paddingVertical: 15,
+    minHeight: 50,
+    marginTop: spacing.md,
   },
   ctaText: { ...type.button, color: colors.onInk },
 })

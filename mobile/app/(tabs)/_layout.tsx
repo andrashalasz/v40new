@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons'
 import { Tabs } from 'expo-router'
-import { Platform, type ColorValue } from 'react-native'
+import { type ColorValue } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useT } from '../../src/i18n'
 import { colors, fonts } from '../../src/theme'
 
@@ -22,6 +23,14 @@ const icon =
 
 export default function TabsLayout() {
   const t = useT()
+  const insets = useSafeAreaInsets()
+
+  // A fülsáv magasságát MAGUNK számoljuk a biztonságos zónából.
+  //
+  // Fix magasságot megadva a kezdősávval rendelkező készülékeken (iPhone X-től
+  // felfelé) a feliratok a gesztussáv alá csúsztak, és levágva látszottak. Az
+  // `insets.bottom` készülékenként más – ezért nem lehet egyetlen jó szám.
+  const barHeight = 56 + insets.bottom
 
   return (
     <Tabs
@@ -33,14 +42,15 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.ink,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: { fontFamily: fonts.bodyMedium, fontSize: 11 },
+        tabBarItemStyle: { paddingTop: 6 },
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.line,
           borderTopWidth: 1,
-          // Androidon a sáv magasabb legyen, hogy a felirat ne préselődjön a
-          // gesztussávra.
-          height: Platform.OS === 'android' ? 64 : undefined,
-          paddingTop: 6,
+          height: barHeight,
+          // A gesztussáv/kezdősáv fölé emeljük a tartalmat, hogy a feliratok
+          // teljes egészében látszódjanak.
+          paddingBottom: insets.bottom,
         },
         sceneStyle: { backgroundColor: colors.bg },
       }}

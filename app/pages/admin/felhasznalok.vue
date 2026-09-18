@@ -43,7 +43,7 @@ async function createUser() {
 // --- Szerkesztés (e-mail, szerepkör, jelszó) ---
 const showEdit = ref(false)
 const ef = reactive({
-  id: 0, email: '', lastName: '', firstName: '', phone: '',
+  id: 0, email: '', lastName: '', firstName: '', phone: '', birthDate: '',
   role: 'USER' as 'USER' | 'DOCTOR' | 'STAFF' | 'ADMIN', password: '',
 })
 const efErr = ref('')
@@ -54,6 +54,9 @@ function openEdit(u: UserRow) {
   Object.assign(ef, {
     id: u.id, email: u.email, lastName, firstName: rest.join(' '),
     phone: u.phone ?? '', role: u.role as typeof ef.role, password: '',
+    // A dátum ISO alakban érkezik; a <input type="date"> csak az első 10
+    // karaktert (ÉÉÉÉ-HH-NN) érti – enélkül üresen maradna a mező.
+    birthDate: u.birthDate ? String(u.birthDate).slice(0, 10) : '',
   })
   efErr.value = ''
   showEdit.value = true
@@ -67,6 +70,7 @@ async function saveEdit() {
       lastName: ef.lastName || null,
       firstName: ef.firstName || null,
       phone: ef.phone || null,
+      birthDate: ef.birthDate || null,
       role: ef.role,
       // Üres mező = nem módosítjuk a jelszót.
       password: ef.password || undefined,
@@ -204,6 +208,12 @@ const roleLabel: Record<string, string> = { USER: 'Páciens', DOCTOR: 'Orvos', S
             <input v-model="ef.email" type="email" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
           </label>
           <input v-model="ef.phone" placeholder="Telefonszám" class="w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+          <label class="block text-sm text-[#344054]">Születési dátum
+            <input v-model="ef.birthDate" type="date" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+            <span class="block text-xs text-[#667085] mt-1">
+              A szakvélemény dokumentum-kódja ebből és a dokumentum dátumából áll össze.
+            </span>
+          </label>
           <label class="block text-sm text-[#344054]">Új jelszó (üresen hagyva marad a régi)
             <input v-model="ef.password" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
           </label>

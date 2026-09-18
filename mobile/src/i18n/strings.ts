@@ -46,6 +46,7 @@ export const hu = {
   'treatments.book': 'Időpontot választok',
   'treatments.vatIncluded': 'bruttó, 27% áfa',
   'treatments.vatExempt': 'áfamentes egészségügyi szolgáltatás',
+  'treatments.priceOnRequest': 'Ár egyeztetés szerint',
 
   'booking.title': 'Időpontfoglalás',
   'booking.loadingService': 'Kezelés betöltése…',
