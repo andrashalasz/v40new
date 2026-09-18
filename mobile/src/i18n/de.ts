@@ -5,6 +5,7 @@ export const de: Strings = {
   'tab.treatments': 'Behandlungen',
   'tab.passes': 'Pakete',
   'tab.bookings': 'Meine Termine',
+  'tab.health': 'Gesundheit',
   'tab.account': 'Konto',
 
   'common.all': 'Alle',

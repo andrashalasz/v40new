@@ -19,6 +19,7 @@ export const hu = {
   'tab.treatments': 'Kezelések',
   'tab.passes': 'Bérletek',
   'tab.bookings': 'Foglalásaim',
+  'tab.health': 'Egészség',
   'tab.account': 'Fiókom',
 
   'common.all': 'Minden',

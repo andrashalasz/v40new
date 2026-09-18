@@ -5,6 +5,7 @@ export const en: Strings = {
   'tab.treatments': 'Treatments',
   'tab.passes': 'Passes',
   'tab.bookings': 'My bookings',
+  'tab.health': 'Health',
   'tab.account': 'Account',
 
   'common.all': 'All',
