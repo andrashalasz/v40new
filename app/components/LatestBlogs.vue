@@ -1,4 +1,5 @@
 <script setup>
+const { t } = await useContent()
 // SSR adatlekérés
 const { data: blogs, pending } = await useFetch('/api/blogs', {
     // Itt adhatsz meg opciókat, pl. transform-ot, ha csak bizonyos mezők kellenek
@@ -22,10 +23,10 @@ const slugify = (text) => {
         <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
             <div class="flex flex-col max-w-[1440px] mx-auto mb-16">
                 <h2 class="text-[28px] lg:text-[48px] dm-sans font-bold mb-4 text-[#171008]">
-                    Legfrissebb írásaink 
+                    {{ t('home.blogs.title', 'Legfrissebb írásaink') }}
                 </h2>
                 <p class="dm-sans text-[#171008] text-[18px] lg:max-w-[540px]">
-                    Friss cikkeinkben közérthetően írunk a longevityről, kezelésekről és egészségmegőrzésről.
+                    {{ t('home.blogs.lead', 'Friss cikkeinkben közérthetően írunk a longevityről, kezelésekről és egészségmegőrzésről.') }}
                 </p>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

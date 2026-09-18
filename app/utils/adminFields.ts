@@ -18,6 +18,7 @@ export type FieldType =
   | 'bool'
   | 'multi'
   | 'paragraphs'
+  | 'image'
 
 export interface Field {
   key: string
@@ -33,6 +34,8 @@ export interface Field {
   /** Az opciók egy másik erőforrásból jönnek */
   optionsFrom?: ResourceName
   optionsLabel?: string
+  /** Szekció cím az űrlapon – az azonos csoportba tartozó mezők együtt jelennek meg */
+  group?: string
 }
 
 export type ResourceName =
@@ -102,8 +105,9 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
       { label: 'Online', get: (r) => pill(r.isBookableOnline) },
     ],
     fields: [
-      { key: 'title', type: 'text', label: 'Megnevezés', required: true, span: 2 },
+      { group: 'Alapadatok', key: 'title', type: 'text', label: 'Megnevezés', required: true, span: 2 },
       {
+        group: 'Alapadatok',
         key: 'slug',
         type: 'text',
         label: 'URL-részlet (slug)',
@@ -111,6 +115,7 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         hint: 'Ha üresen hagyod, a megnevezésből képződik. Módosításnál a régi címre 301-es átirányítás kell, különben elveszik a SEO.',
       },
       {
+        group: 'Alapadatok',
         key: 'categoryId',
         type: 'select',
         label: 'Kezelés típus',
@@ -119,14 +124,16 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         optionsLabel: 'name',
       },
       {
+        group: 'Alapadatok',
         key: 'gender',
         type: 'select',
         label: 'Kinek ajánlott',
         span: 2,
         options: ['Mindenki', 'Női', 'Férfi'].map((v) => ({ value: v, label: v })),
       },
-      { key: 'priceGross', type: 'number', label: 'Bruttó ár (Ft)', required: true, min: 0, span: 2 },
+      { group: 'Ár és áfa', key: 'priceGross', type: 'number', label: 'Bruttó ár (Ft)', required: true, min: 0, span: 2 },
       {
+        group: 'Ár és áfa',
         key: 'vatRate',
         type: 'select',
         label: 'Áfa',
@@ -134,10 +141,11 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         options: VAT,
         hint: 'A magán egészségügyi szolgáltatás áfamentes (Áfa tv. 85. §), az esztétikai jellegű nem.',
       },
-      { key: 'durationMin', type: 'number', label: 'Hossz (perc)', required: true, min: 5, span: 3 },
-      { key: 'bufferBeforeMin', type: 'number', label: 'Puffer előtte (perc)', min: 0, span: 3 },
-      { key: 'bufferAfterMin', type: 'number', label: 'Puffer utána (perc)', min: 0, span: 3 },
+      { group: 'Időzítés és pufferek', key: 'durationMin', type: 'number', label: 'Hossz (perc)', required: true, min: 5, span: 3 },
+      { group: 'Időzítés és pufferek', key: 'bufferBeforeMin', type: 'number', label: 'Puffer előtte (perc)', min: 0, span: 3 },
+      { group: 'Időzítés és pufferek', key: 'bufferAfterMin', type: 'number', label: 'Puffer utána (perc)', min: 0, span: 3 },
       {
+        group: 'Időzítés és pufferek',
         key: 'minLeadTimeHours',
         type: 'number',
         label: 'Legkorábban (óra)',
@@ -145,8 +153,9 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         span: 2,
         hint: 'Ennyivel előbb kell foglalni.',
       },
-      { key: 'maxLeadTimeDays', type: 'number', label: 'Naptár nyitva (nap)', min: 1, span: 2 },
+      { group: 'Időzítés és pufferek', key: 'maxLeadTimeDays', type: 'number', label: 'Naptár nyitva (nap)', min: 1, span: 2 },
       {
+        group: 'Hozzárendelés',
         key: 'roomIds',
         type: 'multi',
         label: 'Mely szobákban végezhető',
@@ -155,6 +164,7 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         hint: 'Ez adja a párhuzamos kapacitást. Szoba nélkül a rendszer csak a szakember idejét figyeli – infúziós kezelésnél ez általában hiba.',
       },
       {
+        group: 'Hozzárendelés',
         key: 'practitionerIds',
         type: 'multi',
         label: 'Mely szakemberek végzik',
@@ -162,14 +172,14 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         optionsLabel: 'name',
         hint: 'Szakember nélkül nem lesz foglalható idősáv.',
       },
-      { key: 'lead', type: 'textarea', label: 'Rövid összefoglaló', rows: 2 },
-      { key: 'desc', type: 'textarea', label: 'Leírás', rows: 5, required: true },
-      { key: 'picUrl', type: 'text', label: 'Kép URL' },
-      { key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
-      { key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
-      { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
-      { key: 'isActive', type: 'bool', label: 'Aktív' },
-      { key: 'isBookableOnline', type: 'bool', label: 'Online foglalható' },
+      { group: 'Leírás és kép', key: 'lead', type: 'textarea', label: 'Rövid összefoglaló', rows: 2 },
+      { group: 'Leírás és kép', key: 'desc', type: 'textarea', label: 'Leírás', rows: 5, required: true },
+      { group: 'Leírás és kép', key: 'picUrl', type: 'image', label: 'Fotó / kép' },
+      { group: 'SEO és beállítások', key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
+      { group: 'SEO és beállítások', key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
+      { group: 'SEO és beállítások', key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
+      { group: 'SEO és beállítások', key: 'isActive', type: 'bool', label: 'Aktív' },
+      { group: 'SEO és beállítások', key: 'isBookableOnline', type: 'bool', label: 'Online foglalható' },
     ],
     blank: () => ({
       title: '',
@@ -217,7 +227,8 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         label: 'Részletes leírás (felugró ablak)',
         hint: 'Minden bekezdés külön mezőben. Ez jelenik meg, ha a látogató a kártyára kattint. Az üres bekezdéseket a szerver kiszűri.',
       },
-      { key: 'iconUrl', type: 'text', label: 'Ikon URL' },
+      { key: 'iconUrl', type: 'image', label: 'Ikon' },
+      { key: 'heroImage', type: 'image', label: 'Illusztráció (felugró teteje)' },
       { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
       { key: 'isActive', type: 'bool', label: 'Aktív' },
     ],
@@ -227,6 +238,7 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
       shortDesc: '',
       longDesc: [''],
       iconUrl: null,
+      heroImage: null,
       sortOrder: 0,
       isActive: true,
     }),
@@ -245,22 +257,23 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
       { label: 'Aktív', get: (r) => pill(r.isActive) },
     ],
     fields: [
-      { key: 'name', type: 'text', label: 'Név', required: true, span: 2 },
-      { key: 'titles', type: 'text', label: 'Titulus', span: 2, hint: 'pl. Dr., PhD' },
-      { key: 'slug', type: 'text', label: 'URL-részlet (slug)', span: 2 },
-      { key: 'category', type: 'text', label: 'Szakterület', span: 2 },
-      { key: 'desc', type: 'textarea', label: 'Bemutatkozás', rows: 5, required: true },
+      { group: 'Alapadatok', key: 'name', type: 'text', label: 'Név', required: true, span: 2 },
+      { group: 'Alapadatok', key: 'titles', type: 'text', label: 'Titulus', span: 2, hint: 'pl. Dr., PhD' },
+      { group: 'Alapadatok', key: 'slug', type: 'text', label: 'URL-részlet (slug)', span: 2 },
+      { group: 'Alapadatok', key: 'category', type: 'text', label: 'Szakterület', span: 2 },
+      { group: 'Bemutatkozás és fotó', key: 'picUrl', type: 'image', label: 'Fotó' },
+      { group: 'Bemutatkozás és fotó', key: 'desc', type: 'textarea', label: 'Bemutatkozás', rows: 5, required: true },
       {
+        group: 'Hozzárendelés',
         key: 'serviceIds',
         type: 'multi',
         label: 'Mely kezeléseket végzi',
         optionsFrom: 'services',
         optionsLabel: 'title',
       },
-      { key: 'picUrl', type: 'text', label: 'Fotó URL' },
-      { key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
-      { key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
-      { key: 'isActive', type: 'bool', label: 'Aktív' },
+      { group: 'SEO és beállítások', key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
+      { group: 'SEO és beállítások', key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
+      { group: 'SEO és beállítások', key: 'isActive', type: 'bool', label: 'Aktív' },
     ],
     blank: () => ({
       name: '',
@@ -332,7 +345,7 @@ export const RESOURCES: Record<ResourceName, ResourceDef> = {
         required: true,
       },
       { key: 'desc', type: 'textarea', label: 'Leírás', rows: 4, required: true },
-      { key: 'picUrl', type: 'text', label: 'Kép URL' },
+      { key: 'picUrl', type: 'image', label: 'Kép' },
       { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
       { key: 'transferable', type: 'bool', label: 'Átruházható' },
       { key: 'isActive', type: 'bool', label: 'Aktív' },

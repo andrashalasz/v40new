@@ -1,6 +1,8 @@
 <script setup>
-// Kategóriák lekérése
-const { data: types } = await useFetch('/api/products/types')
+const { t } = await useContent()
+const locale = useLocale()
+// Kategóriák lekérése – { value: magyar szűrőkulcs, label: fordított címke }
+const { data: types } = await useFetch('/api/products/types', { query: { locale } })
 
 const selectedType = ref(null)
 
@@ -10,7 +12,7 @@ const allCategories = computed(() => {
 
 // Termékek lekérése
 const { data: rawProducts, pending } = await useFetch('/api/products', {
-  params: { type: selectedType },
+  params: { type: selectedType, locale: locale.value },
   watch: [selectedType]
 })
 
@@ -75,12 +77,12 @@ const slugify = (text) => {
     <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
       <div class="flex justify-center mb-12">
         <div class="flex items-center gap-8 overflow-x-auto no-scrollbar border-b border-gray-200 pb-[1px] w-fit">
-          <button v-for="category in allCategories" :key="category" @click="selectedType = category"
+          <button v-for="category in allCategories" :key="category.value" @click="selectedType = category.value"
             class="pb-3 text-sm lg:text-[18px] font-semibold transition-all duration-300 relative whitespace-nowrap px-2"
-            :class="[selectedType === category ? 'text-[#153131]' : 'text-[#767676] hover:text-[#070707]']">
-            {{ category }}
+            :class="[selectedType === category.value ? 'text-[#153131]' : 'text-[#767676] hover:text-[#070707]']">
+            {{ category.label }}
             <div class="absolute -bottom-0.5 left-0 w-full h-[3px] transition-all duration-300 rounded-full"
-              :class="selectedType === category ? 'bg-[#153131] scale-x-100' : 'bg-transparent scale-x-0'"></div>
+              :class="selectedType === category.value ? 'bg-[#153131] scale-x-100' : 'bg-transparent scale-x-0'"></div>
           </button>
         </div>
       </div>
@@ -88,12 +90,12 @@ const slugify = (text) => {
         <NuxtLink v-for="product in products" :key="product.id" :to="`/szolgaltatas/${product.slug}`"
           class="w-full flex flex-col lg:flex-row justify-between border-b border-[#DBDBDB]">
           <div class="flex flex-col lg:flex-row items-center gap-6">
-            <NuxtImg :src="product.picUrl" :alt="product.title" class="w-full lg:h-[280px] lg:w-[280px] object-cover flex-shrink-0 rounded-xl lg:mb-4" />
+            <NuxtImg :src="product.picUrl || '43.jpeg'" :alt="product.title" class="w-full lg:h-[280px] lg:w-[280px] object-cover flex-shrink-0 rounded-xl lg:mb-4" />
             <div class="w-full">
               <h3 class="font-medium text-[24px] text-[#171008] dm-sans mb-2">{{ product.title }}</h3>
               <p class="text-[#171008] text-[16px] dm-sans mb-4 line-clamp-2">{{ product.desc.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() }}</p>
               <div class="flex items-center gap-3 lg:mt-10 mb-4 lg:mb-0">
-                <div class="bg-[#2F73F21A] rounded-sm text-[#153131] text-[16px] dm-sans px-2 py-1">{{ product.time }} perc</div>
+                <div class="bg-[#2F73F21A] rounded-sm text-[#153131] text-[16px] dm-sans px-2 py-1">{{ product.time }} {{ t('common.min', 'perc') }}</div>
                 <div class="bg-[#2F73F21A] rounded-sm text-[#153131] text-[16px] dm-sans px-2 py-1">{{ product.type }}</div>
               </div>
             </div>
@@ -103,7 +105,7 @@ const slugify = (text) => {
             <NuxtLink
               class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
               :to="`/szolgaltatas/${product.slug}`">
-              Bővebben
+              {{ t('common.more', 'Bővebben') }}
             </NuxtLink>
           </div>
         </NuxtLink>
@@ -113,26 +115,24 @@ const slugify = (text) => {
         <div class="flex flex-col">
           <p
             class="dm-sans mb-4 font-bold text-[#171008] text-[32px] lg:text-[64px] leading-[1.3] drop-shadow-xl">
-            Nem tudod melyik kell?
+            {{ t('search.help.title', 'Nem tudod melyik kell?') }}
         </p>
           <p class="dm-sans text-[#171008] text-[18px] lg:max-w-[490px] leading-[1.3] drop-shadow-md">
-            Prémium állapotfelmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat
+            {{ t('cta.lead', 'Prémium állapotfelmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat') }}
           </p>
           <div class="w-full lg:w-auto flex flex-col mt-8 lg:mt-28">
             <div class="flex flex-col lg:flex-row items-center gap-4 mb-6 w-full lg:w-auto">
               <NuxtLink
                 class="flex-1 lg:flex-none text-center bg-[#153131] rounded-lg px-8 py-4 dm-sans text-[white] transition-all"
-                to="/idopont">
-                Időpontfoglalás
-              </NuxtLink>
+                to="/idopont">{{ t('common.book', 'Időpontfoglalás') }}</NuxtLink>
               <NuxtLink
                 class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] transition-all"
                 to="/longevity">
-                Mi az a Longevity?
+                {{ t('home.hero.cta.secondary', 'Mi az a Longevity?') }}
               </NuxtLink>
             </div>
             <p class="flex dm-sans text-[#171008] text-[18px] lg:max-w-[480px] leading-[1.4] drop-shadow-md">
-              Prémium állapot felmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat
+              {{ t('cta.lead', 'Prémium állapotfelmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat') }}
             </p>
           </div>
         </div>

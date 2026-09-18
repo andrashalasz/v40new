@@ -24,6 +24,7 @@ datasource db {
 
 enum Role {
   USER
+  DOCTOR // csak szakvéleményt ír a hozzárendelt pácienseinek
   STAFF
   ADMIN
 }
@@ -38,6 +39,8 @@ model User {
   lastName  String?
   firstName String?
   phone     String?
+  birthDate DateTime? // páciens születési dátuma (szakvélemény dokumentum-kódjához)
+  isActive  Boolean   @default(true) // deaktiválás: nem tud belépni
 
   // GDPR
   marketingConsentAt DateTime?
@@ -53,8 +56,95 @@ model User {
   auditLogs      AuditLog[]
   passwordResets PasswordReset[]
   loginTokens    LoginToken[]
+  mobileSessions MobileSession[]
+
+  medicalOpinions  MedicalOpinion[] @relation("PatientOpinions")
+  authoredOpinions MedicalOpinion[] @relation("AuthoredOpinions")
+  questionnaires   QuestionnaireResponse[]
+
+  patientLinks      PatientDoctor[]   @relation("PatientLinks") // páciensként: kik az orvosai
+  doctorLinks       PatientDoctor[]   @relation("DoctorLinks") // orvosként: kik a pácienei
+  documents         PatientDocument[] @relation("PatientDocuments") // páciens saját dokumentumai
+  uploadedDocuments PatientDocument[] @relation("UploadedDocuments")
 
   @@index([createdAt])
+}
+
+// Kitöltött kérdőív (pl. mikrobiom felmérés). Bejelentkezett pácienshez kötve,
+// vagy vendégként név/e-mail megadásával. A staff/hozzárendelt orvos látja.
+model QuestionnaireResponse {
+  id        Int      @id @default(autoincrement())
+  type      String // "mikrobiom"
+  userId    Int?
+  name      String?
+  email     String?
+  answers   Json
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([type, createdAt])
+  @@index([userId])
+}
+
+// Orvos–páciens hozzárendelés. A hozzárendelt orvos látja a páciens
+// történetét és dokumentumait, és szakvéleményt írhat neki.
+model PatientDoctor {
+  id        Int      @id @default(autoincrement())
+  patientId Int
+  doctorId  Int
+  createdAt DateTime @default(now())
+
+  patient User @relation("PatientLinks", fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  User @relation("DoctorLinks", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([patientId, doctorId])
+  @@index([doctorId])
+}
+
+// A páciens által (vagy nevében) feltöltött dokumentum. A páciens a fiókjában
+// tölti fel; a hozzárendelt orvos és a staff látja.
+model PatientDocument {
+  id           Int    @id @default(autoincrement())
+  userId       Int // páciens
+  uploadedById Int? // ki töltötte fel (páciens vagy staff)
+
+  fileName String
+  fileUrl  String
+  mimeType String?
+  size     Int?
+  note     String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  user       User  @relation("PatientDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("UploadedDocuments", fields: [uploadedById], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+// Szakvélemény / páciens-dokumentáció. Egy regisztrált pácienshez a staff
+// szakvéleményt ír, ami megjelenik az ügyfél fiókjában és e-mailben is kimegy.
+// A dokumentum-kód a páciens születési évéből és a dokumentum dátumából áll.
+model MedicalOpinion {
+  id           Int    @id @default(autoincrement())
+  documentCode String @unique // pl. "1985-20260817-A1B2"
+
+  userId        Int // páciens
+  authorId      Int? // staff, aki írta
+  appointmentId Int? // kapcsolódó kezelés (opcionális)
+
+  title String
+  body  String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User         @relation("PatientOpinions", fields: [userId], references: [id])
+  author      User?        @relation("AuthoredOpinions", fields: [authorId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@index([userId, createdAt])
 }
 
 model PasswordReset {
@@ -79,6 +169,8 @@ model ServiceCategory {
 
   /// Ikon a nyitóoldali kártyán
   iconUrl String?
+  /// Illusztráció a felugró ablak tetején (opcionális)
+  heroImage String?
   /// A kártyán megjelenő rövid szöveg
   shortDesc String? @db.Text
   /// A felugró ablak teljes leírása (bekezdésekre bontva)
@@ -87,6 +179,7 @@ model ServiceCategory {
 
   metaTitle       String?
   metaDescription String? @db.Text
+  archivedAt      DateTime? // soft-delete a generikus admin CRUD-hoz
 
   services Service[]
 }
@@ -289,6 +382,8 @@ model Appointment {
   room         Room?           @relation(fields: [roomId], references: [id])
   orderItems   OrderItem[]
   redemption   PassRedemption?
+  guarantee    CardGuarantee?
+  opinions     MedicalOpinion[]
 
   @@index([userId, startsAt])
   @@index([status, holdUntil])
@@ -648,6 +743,26 @@ model ClinicSettings {
 
   requireBuffersInsideHours Boolean @default(false)
 
+  // --- fizetés / számlázás: adminból állítható, nem bekódolva ---
+  currency             String  @default("HUF")
+  onlinePaymentEnabled Boolean @default(true) // online bankkártyás fizetés felkínálása
+  cardGuaranteeEnabled Boolean @default(true) // kártya-biztosíték bekérése foglaláskor
+  noShowFeePercent     Int     @default(50) // no-show / késői lemondás díja a szolgáltatás árának %-ában
+  invoiceAutoIssue     Boolean @default(true) // számla automatikus kiállítása fizetéskor
+
+  // --- e-mail küldés (SMTP): adminból állítható, .env visszaeséssel ---
+  smtpHost String?
+  smtpPort Int     @default(587)
+  smtpUser String?
+  smtpPass String? // titok – adminból menthető, de kezeljük óvatosan
+  mailFrom String? // "V40 Vital <info@v40vital.hu>"
+
+  // --- SMS emlékeztető (Twilio) ---
+  smsProvider    String  @default("NONE") // NONE | TWILIO
+  smsFrom        String? // küldő szám (Twilio: +1..., vagy Alphanumeric Sender ID)
+  twilioSid      String? // Account SID
+  twilioToken    String? // Auth Token (titok)
+
   // --- marketing / analitika: az azonosítók is adminból állíthatók ---
   ga4MeasurementId String?
   gtmContainerId   String?
@@ -812,4 +927,105 @@ model LoginToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Mobilalkalmazás eszköz-munkamenet (iOS / Android).
+///
+/// A weboldal süti-alapú munkamenetet használ (nuxt-auth-utils), ez viszont a
+/// natív appból nem működik. Az app helyette Bearer tokent küld:
+///   - rövid életű HOZZÁFÉRÉSI token (aláírt, 15 perc, nincs adatbázisban),
+///   - hosszú életű FRISSÍTŐ token (itt, hash-elve tárolva, visszavonható).
+///
+/// Miért hash-elve: ha az adatbázis kiszivárog, a tokenekkel akkor sem lehet
+/// belépni – ugyanaz az elv, mint a LoginToken és a PasswordReset esetében.
+///
+/// A frissítő token minden használatkor CSERÉLŐDIK (rotáció). Ha egy már
+/// felhasznált tokennel próbálkoznak, az lopott tokenre utal, ezért olyankor a
+/// felhasználó ÖSSZES eszköz-munkamenetét érvénytelenítjük.
+model MobileSession {
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  platform   String? // "ios" | "android"
+  deviceName String?
+  appVersion String?
+  pushToken  String? // Expo push token az értesítésekhez
+
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([pushToken])
+  @@index([expiresAt])
+}
+
+// ============================ TÖBBNYELVŰSÉG =================================
+
+/// Kezelt nyelvek. A `hu` az alap (isDefault); az admin újat vehet fel, és a
+/// felvitelkor AI lefordítja a tartalmat első körben.
+model Language {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // rövid kód: "hu", "en", "de"
+  name      String // megjelenő név: "Magyar", "English", "Deutsch"
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// Fordítások minden fordítható mezőhöz. Az alap (magyar) érték az eredeti
+/// táblákban marad; ide a többi nyelv kerül. Ha egy (entity,entityId,field,
+/// locale) hármas nincs meg, a frontend az alap nyelvre esik vissza – így egy
+/// hiányzó fordítás sosem eredményez üres oldalt.
+model Translation {
+  id          Int      @id @default(autoincrement())
+  entity      String // "Service", "ServiceCategory", "PassTemplate", "Practitioner"
+  entityId    Int
+  field       String // "title", "desc", "name", "shortDesc", "longDesc", ...
+  locale      String // "en", "de"
+  value       String   @db.Text
+  aiGenerated Boolean  @default(false) // AI-fordítás volt-e (kézzel felülírható)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([entity, entityId, field, locale])
+  @@index([locale])
+  @@index([entity, entityId])
+}
+
+// ======================= KÁRTYA-BIZTOSÍTÉK (no-show) ========================
+
+/// A foglaláshoz elmentett kártya biztosítékként (Stripe SetupIntent). A
+/// kezelést nem ez fizeti (azt helyszínen/bérletből), de meg-nem-jelenés
+/// esetén a rendelő terhelhet róla no-show díjat. A tényleges kártyaadatot
+/// SOHA nem tároljuk – csak a szolgáltatói hivatkozásokat.
+model CardGuarantee {
+  id              Int                 @id @default(autoincrement())
+  appointmentId   Int                 @unique
+  provider        PaymentProvider     @default(STRIPE)
+  customerRef     String? // szolgáltatói ügyfél-azonosító (Stripe customer)
+  setupIntentId   String?             @unique // Stripe SetupIntent
+  paymentMethodId String? // elmentett fizetési mód (kártya) hivatkozása
+  status          CardGuaranteeStatus @default(PENDING)
+  cardBrand       String?
+  cardLast4       String?
+  chargedPaymentId String? // ha no-show díjat vontunk, a Payment.providerPaymentId
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+enum CardGuaranteeStatus {
+  PENDING // SetupIntent létrehozva, a kártya megadására várunk
+  ACTIVE // kártya elmentve, biztosítékként él
+  CHARGED // no-show díj levonva
+  CANCELLED // biztosíték feloldva
+  FAILED
 }

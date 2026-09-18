@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/andrashalasz/Downloads/**)",
+      "Read(//Users/andrashalasz/Library/Mobile Documents/com~apple~CloudDocs/Downloads/**)",
+      "Read(//Users/andrashalasz/**)",
+      "Read(//Users/andrashalasz/Library/Mobile Documents/com~apple~CloudDocs/**)",
+      "Bash(git am *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(npm test *)",
+      "Bash(echo \"EXIT_TEST=$?\")",
+      "Bash(awk '/model ContentBlock/,/^}/' prisma/schema.prisma)",
+      "Bash(kill 7371)",
+      "Bash(lsof -nP -iTCP:3001 -sTCP:LISTEN)",
+      "Bash(lsof -nP -iTCP:3002 -sTCP:LISTEN)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(npm run *)",
+      "Bash(rm -rf v40old)",
+      "Bash(mkdir -p v40old)",
+      "Bash(unzip -q \"/Users/andrashalasz/Library/Mobile Documents/com~apple~CloudDocs/Downloads/v40-main.zip\" -d v40old)",
+      "Bash(find /private/tmp/claude-501/-Users-andrashalasz-Library-Mobile-Documents-com-apple-CloudDocs-Downloads-v40-vital/bb86b21f-267e-41e4-8fb3-4be71921ddfe/scratchpad/v40old/v40-main -type f '\\(' -iname *.sql -o -iname *.json -o -iname *.csv -o -iname *.db -o -iname *.sqlite '\\)' -not -path */node_modules/*)",
+      "Bash(curl -s http://localhost:3002/api/categories)",
+      "Bash(echo \"=== recent image files \\(last 30 min\\) in likely spots ===\"; find ~/Downloads /tmp /private/tmp \"$HOME/Library/Caches\" -maxdepth 4 -type f \\\\\\( -iname '*.webp' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \\\\\\) -mmin -30 2>/dev/null | grep -v node_modules | head -40)",
+      "Bash(find ~/Downloads '/Users/andrashalasz/Library/Mobile Documents' -iname *.webp -mmin -60)",
+      "Bash(npx prisma *)",
+      "Bash(curl -s http://localhost:3002/api/doctors)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('count',len\\(d\\)\\); [print\\('-',x['name'],'|',x['category'],'| pic:',x['picUrl']\\) for x in d]\")",
+      "Bash(grep -vE 'tailwindcss|^$')",
+      "Bash(python3 -c \"import sys,json; [print\\(i+1,x['name']\\) for i,x in enumerate\\(json.load\\(sys.stdin\\)\\)]\")",
+      "Bash(grep -rhoE '[0-9]{4,7}' /private/tmp/claude-501/-Users-andrashalasz-Library-Mobile-Documents-com-apple-CloudDocs-Downloads-v40-vital/bb86b21f-267e-41e4-8fb3-4be71921ddfe/scratchpad/v40old/v40-main/app)",
+      "Bash(grep -vE 'warn|Prisma config|package.json|Update available|major|npm i|pris.ly|^\\\\s*│\\\\s*$|^\\\\s*╭|^\\\\s*╰|^\\\\s*│$')",
+      "Bash(curl -s \"http://localhost:3002/api/products\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('count',len\\(d\\)\\); [print\\(' -',x['title'],'|',x['type'],'|',x['price'],'Ft'\\) for x in d]\")",
+      "Bash(curl -s \"http://localhost:3002/api/products/types\")",
+      "Bash(curl -s \"http://localhost:3002/api/passes\")",
+      "Bash(python3 -c \"import sys,json; [print\\(' -',x['title'],'| services:',[s['title'] for s in x['services']]\\) for x in json.load\\(sys.stdin\\)]\")"
+    ]
+  }
+}

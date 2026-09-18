@@ -10,7 +10,7 @@ import { requireUser } from '~~/server/utils/guard'
 export default defineEventHandler(async (event) => {
   const user = await requireUser(event)
 
-  const [profile, appointments, passes] = await Promise.all([
+  const [profile, appointments, passes, invoices, opinions, documents] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { email: true, firstName: true, lastName: true, phone: true },
@@ -53,6 +53,21 @@ export default defineEventHandler(async (event) => {
         },
       },
     }),
+    prisma.invoice.findMany({
+      where: { order: { userId: user.id }, invoiceNumber: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, invoiceNumber: true, totalGross: true, isStorno: true, issuedAt: true, createdAt: true },
+    }),
+    prisma.medicalOpinion.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, documentCode: true, title: true, createdAt: true },
+    }),
+    prisma.patientDocument.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, fileName: true, mimeType: true, createdAt: true },
+    }),
   ])
 
   const now = Date.now()
@@ -65,5 +80,8 @@ export default defineEventHandler(async (event) => {
       services: p.passTemplate.services.map((s) => s.service),
       passTemplate: { title: p.passTemplate.title },
     })),
+    invoices,
+    opinions,
+    documents,
   }
 })

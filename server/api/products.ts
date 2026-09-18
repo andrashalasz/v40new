@@ -1,4 +1,5 @@
 import { prisma } from '~~/server/utils/prisma'
+import { entityTranslations } from '~~/server/utils/i18n'
 
 /**
  * KOMPATIBILITÁSI RÉTEG – /api/products
@@ -70,6 +71,37 @@ function loadOne(where: Record<string, unknown>) {
   return prisma.service.findFirst({ where: { ...PUBLIC, ...where }, select })
 }
 
+type SvcRow = {
+  id: number
+  slug: string
+  title: string
+  lead: string | null
+  desc: string
+  gender: string
+  priceGross: number
+  vatRate: number
+  durationMin: number
+  picUrl: string | null
+  category: { id: number; name: string; slug: string } | null
+}
+
+/** A kezelés-sorokra ráolvassa a kért nyelvű fordítást (magyar visszaeséssel). */
+async function localize<T extends SvcRow>(rows: T[], locale: string): Promise<T[]> {
+  if (!locale || locale === 'hu' || !rows.length) return rows
+  const svcTr = await entityTranslations('Service', rows.map((r) => r.id), locale)
+  const catIds = [...new Set(rows.map((r) => r.category?.id).filter((x): x is number => !!x))]
+  const catTr = await entityTranslations('ServiceCategory', catIds, locale)
+  return rows.map((r) => ({
+    ...r,
+    title: svcTr[r.id]?.title ?? r.title,
+    lead: svcTr[r.id]?.lead ?? r.lead,
+    desc: svcTr[r.id]?.desc ?? r.desc,
+    category: r.category
+      ? { ...r.category, name: catTr[r.category.id]?.name ?? r.category.name }
+      : null,
+  }))
+}
+
 export default defineEventHandler(async (event) => {
   if (event.method !== 'GET') {
     throw createError({
@@ -79,6 +111,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const query = getQuery(event)
+  const locale = String(query.locale ?? 'hu')
 
   // 1. Egy kezelés slug alapján, a hasonlókkal együtt
   if (query.slug) {
@@ -100,13 +133,16 @@ export default defineEventHandler(async (event) => {
       take: 4,
     })
 
-    return { product: toProduct(found), related: related.map(toProduct) }
+    const [foundL, ...relatedL] = await localize([found, ...related], locale)
+    return { product: toProduct(foundL!), related: relatedL.map(toProduct) }
   }
 
   // 2. Egy kezelés id alapján
   if (query.id) {
     const one = await loadOne({ id: Number(query.id) })
-    return one ? toProduct(one) : null
+    if (!one) return null
+    const [oneL] = await localize([one], locale)
+    return toProduct(oneL!)
   }
 
   // 3. Lista, opcionálisan típus szerint szűrve (a szűrő a típus NEVÉT küldi)
@@ -120,5 +156,5 @@ export default defineEventHandler(async (event) => {
     orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
   })
 
-  return rows.map(toProduct)
+  return (await localize(rows, locale)).map(toProduct)
 })

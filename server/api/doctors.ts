@@ -1,4 +1,5 @@
 import { prisma } from '~~/server/utils/prisma'
+import { entityTranslations } from '~~/server/utils/i18n'
 
 /**
  * KOMPATIBILITÁSI RÉTEG – /api/doctors
@@ -28,14 +29,29 @@ export default defineEventHandler(async (event) => {
   }
 
   const query = getQuery(event)
+  const locale = String(query.locale ?? 'hu')
   const where = { archivedAt: null, isActive: true } as const
 
-  if (query.id) {
-    return prisma.practitioner.findFirst({
-      where: { ...where, id: Number(query.id) },
-      select,
-    })
+  // A titulus, a kategória és a bemutatkozó fordítható (a név nem).
+  type Doc = { id: number; titles: string | null; category: string | null; desc: string | null }
+  async function localize<T extends Doc>(rows: T[]): Promise<T[]> {
+    if (!locale || locale === 'hu' || !rows.length) return rows
+    const tr = await entityTranslations('Practitioner', rows.map((r) => r.id), locale)
+    return rows.map((r) => ({
+      ...r,
+      titles: tr[r.id]?.titles ?? r.titles,
+      category: tr[r.id]?.category ?? r.category,
+      desc: tr[r.id]?.desc ?? r.desc,
+    }))
   }
 
-  return prisma.practitioner.findMany({ where, select, orderBy: { name: 'asc' } })
+  if (query.id) {
+    const one = await prisma.practitioner.findFirst({ where: { ...where, id: Number(query.id) }, select })
+    if (!one) return one
+    const [oneL] = await localize([one])
+    return oneL
+  }
+
+  const rows = await prisma.practitioner.findMany({ where, select, orderBy: { name: 'asc' } })
+  return localize(rows)
 })

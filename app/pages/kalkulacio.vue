@@ -4,10 +4,9 @@
         <div class="relative w-full">
             <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
                 <h1 class="text-[32px] lg:text-[64px] dm-sans font-bold mb-4 text-center text-[#171008]">
-                    Kinek való? Döntéstámogatás
+                    {{ t('kalkulacio.hero.title', 'Kinek való? Döntéstámogatás') }}
                 </h1>
-                <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">Minden információ a longevity
-                    programról, kezelésekról,tanulmányokról és kezeléseink beszámolói
+                <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">{{ t('kalkulacio.hero.lead', 'Minden információ a longevity programról, kezelésekról, tanulmányokról és kezeléseink beszámolói') }}
                 </p>
             </div>
         </div>
@@ -41,10 +40,9 @@
                 </div>
                 <div v-if="isFinished" ref="resultCard" class="flex flex-col gap-4 mt-10">
                     <h3 class="text-[24px] lg:text-[32px] dm-sans font-bold lg:mb-2 text-center text-[#171008]">
-                        Eredmény - ajánlott szolgáltatáscsomag
+                        {{ t('kalkulacio.result.title', 'Eredmény - ajánlott szolgáltatáscsomag') }}
                     </h3>
-                    <p class="dm-sans text-[#171008] text-[16px] text-center mb-6">Minden információ a
-                        longevity programról, kezelésekról,tanulmányokról és kezeléseink beszámolói
+                    <p class="dm-sans text-[#171008] text-[16px] text-center mb-6">{{ t('kalkulacio.result.lead', 'A válaszaid alapján ezt a szolgáltatást ajánljuk neked.') }}
                     </p>
                     <NuxtLink 
                         :to="`/szolgaltatas/${recommendedProduct?.slug}`"
@@ -57,7 +55,7 @@
                                 <p class="text-[#171008] text-[16px] dm-sans mb-4 lg:max-w-[380px] line-clamp-2">{{ recommendedProduct?.desc }}</p>
                                 <div class="flex items-center gap-3 lg:mt-10 mb-4 lg:mb-0">
                                     <div class="bg-[#2F73F21A] rounded-sm text-[#153131] text-[16px] dm-sans px-2 py-1">
-                                        {{ recommendedProduct?.time }} perc</div>
+                                        {{ recommendedProduct?.time }} {{ t('common.min', 'perc') }}</div>
                                     <div class="bg-[#2F73F21A] rounded-sm text-[#153131] text-[16px] dm-sans px-2 py-1">
                                         {{ recommendedProduct?.type }}</div>
                                 </div>
@@ -69,7 +67,7 @@
                             <NuxtLink
                                 class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
                                 :to="`/szolgaltatas/${recommendedProduct?.slug}`">
-                                Bővebben
+                                {{ t('common.more', 'Bővebben') }}
                             </NuxtLink>
                         </div>
                     </NuxtLink>
@@ -83,6 +81,7 @@
 </template>
 
 <script setup>
+const { t } = await useContent()
 const { data: products } = useFetch('/api/products')
 
 const currentStep = ref(0)
@@ -91,36 +90,39 @@ const isFinished = ref(false)
 const resultCard = ref(null);
 
 useSeoMeta({
-title: 'Navigátor| V40',
+title: () => `${t('nav.navigator', 'Navigátor')} | V40 Vital`,
 
 })
 
-const questions = [
+const questions = computed(() => [
     {
         id: 'gender',
-        text: 'Neme',
-        options: [{ label: 'Férfi', value: 'ferfi' }, { label: 'Nő', value: 'no' }]
+        text: t('kalkulacio.q.gender', 'Neme'),
+        options: [
+            { label: t('kalkulacio.q.gender.male', 'Férfi'), value: 'ferfi' },
+            { label: t('kalkulacio.q.gender.female', 'Nő'), value: 'no' },
+        ]
     },
     {
         id: 'goal',
-        text: 'Mi a célja a látogatással?',
+        text: t('kalkulacio.q.goal', 'Mi a célja a látogatással?'),
         options: [
-            { label: 'Energia növelés', value: 'energy' },
-            { label: 'Sport regeneráció', value: 'sport' },
-            { label: 'Immunerősítés', value: 'immune' },
-            { label: 'Bőrfiatalítás', value: 'beauty' }
+            { label: t('kalkulacio.q.goal.energy', 'Energia növelés'), value: 'energy' },
+            { label: t('kalkulacio.q.goal.sport', 'Sport regeneráció'), value: 'sport' },
+            { label: t('kalkulacio.q.goal.immune', 'Immunerősítés'), value: 'immune' },
+            { label: t('kalkulacio.q.goal.beauty', 'Bőrfiatalítás'), value: 'beauty' }
         ]
     },
     {
         id: 'age_group',
-        text: 'Életkor',
+        text: t('kalkulacio.q.age', 'Életkor'),
         options: [
-            { label: '20-40 év között', value: 'young' },
-            { label: '40-60 év között', value: 'mid' },
-            { label: '60 év felett', value: 'senior' }
+            { label: t('kalkulacio.q.age.young', '20-40 év között'), value: 'young' },
+            { label: t('kalkulacio.q.age.mid', '40-60 év között'), value: 'mid' },
+            { label: t('kalkulacio.q.age.senior', '60 év felett'), value: 'senior' }
         ]
     }
-]
+])
 
 const slugify = (text) => {
     return text
@@ -137,9 +139,9 @@ const slugify = (text) => {
 const handleAnswer = (qId, value, index) => {
     answers.value[qId] = value
 
-    if (index === currentStep.value && currentStep.value < questions.length - 1) {
+    if (index === currentStep.value && currentStep.value < questions.value.length - 1) {
         currentStep.value++
-    } else if (index === questions.length - 1) {
+    } else if (index === questions.value.length - 1) {
         isFinished.value = true
 
         // Várni kell egy kicsit, amíg a Vue lerendeli a v-if-et

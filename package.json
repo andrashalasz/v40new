@@ -9,6 +9,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "seed": "prisma db seed",
+    "content:import": "tsx scripts/import-content.ts",
+    "db:setup": "prisma migrate deploy && prisma db seed && tsx scripts/import-content.ts",
     "test": "node --experimental-strip-types --test tests/**/*.test.ts",
     "optimize:images": "node scripts/optimize-images.mjs",
     "typecheck": "nuxt typecheck"
@@ -17,6 +19,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@nuxt/image": "^2.0.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
     "@prisma/client": "^6.19.2",
@@ -26,9 +29,11 @@
     "@tiptap/vue-3": "^3.20.0",
     "bcryptjs": "^3.0.3",
     "mariadb": "^3.5.1",
+    "nodemailer": "^9.0.5",
     "nuxt": "^4.3.1",
     "nuxt-auth-utils": "^0.5.29",
     "sharp": "^0.34.5",
+    "stripe": "^22.5.0",
     "typescript": "^5.9.3",
     "vue": "^3.5.28",
     "vue-material-design-icons": "^5.3.1",
@@ -36,11 +41,13 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nodemailer": "^8.0.1",
     "dotenv": "^17.3.1",
+    "mammoth": "^1.12.2",
     "prisma": "^6.19.2",
     "tsx": "^4.21.0",
-    "vue-tsc": "^2.1.10",
     "typescript": "^5.6.3",
-    "@types/node": "^22.10.2"
+    "vue-tsc": "^2.1.10"
   }
 }

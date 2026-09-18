@@ -4,11 +4,9 @@
         <div class="relative w-full">
             <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
                 <h1 class="text-[32px] lg:text-[64px] dm-sans font-bold mb-4 text-center text-[#171008]">
-                    GYIK
+                    {{ t('gyik.hero.title', 'GYIK') }}
                 </h1>
-                <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">Gyors válaszok a leggyakoribb
-                    kérdésekre, egy helyen.
-                </p>
+                <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">{{ t('gyik.hero.lead', 'Gyors válaszok a leggyakoribb kérdésekre, egy helyen.') }}</p>
             </div>
         </div>
     </div>
@@ -46,39 +44,27 @@
 
 <script setup>
 useSeoMeta({
-    title: 'GYIK | V40',
+    title: () => `${t('nav.faq', 'GYIK')} | V40 Vital`,
 })
 
-const questions = [
-    {
-        question: "Hogyan tudok időpontot foglalni?",
-        answer: "Időpontot online, a Swazy rendszerén keresztül tudsz foglalni néhány kattintással a weboldalunkon. A foglalásról minden esetben visszaigazolást kapsz e-mailben, amely tartalmazza a vizsgálat pontos részleteit."
-    },
-    {
-        question: "Kell-e előzetes leletet vagy laboreredményt hoznom?",
-        answer: "Ez a választott kezeléstől függ, de ha van korábbi leleted vagy vizsgálati eredményed, mindenképpen érdemes magaddal hoznod. Ez segít szakembereinknek abban, hogy pontosabb és átfogóbb képet kapjanak az aktuális állapotodról."
-    },
-    {
-        question: "Lehet-e online konzultációt kérni?",
-        answer: "Igen, online konzultációra is van lehetőség. Időpont egyeztetéshez kérjük, vedd fel velünk a kapcsolatot a +36 30 934 3629-es telefonszámon, ahol a szakmai vezető segít a továbbiakban."
-    },
-    {
-        question: "Mi történik, ha nem nekem való az adott kezelés vagy program?",
-        answer: "A különböző programok és kezelések esetében előzetes egyeztetés szükséges. Ennek során segítünk eldönteni, hogy melyik irány a legmegfelelőbb számodra."
-    },
-    {
-        question: "Milyen fizetési lehetőségek vannak? Van lehetőség egészségpénztári elszámolásra?",
-        answer: "Online foglalás esetén bankkártyás fizetésre van lehetőség, a rendelőben pedig készpénzzel és bankkártyával is fizethetsz. Az egészségpénztári elszámolás lehetőségéről érdemes előre érdeklődni elérhetőségeinken, mivel ez szolgáltatásonként eltérhet."
-    },
-    {
-        question: "Mi a lemondási vagy módosítási feltétel?",
-        answer: "Az időpont a vizsgálat előtt legalább 24 órával lemondható vagy módosítható. 24 órán belüli lemondás esetén a szolgáltatás díjának 50% -a kerül felszámításra."
-    },
-    {
-        question: "Van parkolási lehetőség a közelben?",
-        answer: "A rendelő közvetlen környékén fizetős utcai parkolás érhető el. Mivel a belvárosi övezetben a szabad helyek száma változó, érdemes 10-15 perccel korábban érkezni, hogy kényelmesen találj parkolóhelyet."
-    }
+const { t } = await useContent()
+
+const DEFAULTS = [
+    ["Hogyan tudok időpontot foglalni?", "Időpontot online, a weboldalunkon tudsz foglalni néhány kattintással. A foglalásról minden esetben visszaigazolást kapsz e-mailben, amely tartalmazza a vizsgálat pontos részleteit."],
+    ["Kell-e előzetes leletet vagy laboreredményt hoznom?", "Ez a választott kezeléstől függ, de ha van korábbi leleted vagy vizsgálati eredményed, mindenképpen érdemes magaddal hoznod. Ez segít szakembereinknek abban, hogy pontosabb és átfogóbb képet kapjanak az aktuális állapotodról."],
+    ["Lehet-e online konzultációt kérni?", "Igen, online konzultációra is van lehetőség. Időpont-egyeztetéshez kérjük, vedd fel velünk a kapcsolatot elérhetőségeinken, ahol a szakmai vezető segít a továbbiakban."],
+    ["Mi történik, ha nem nekem való az adott kezelés vagy program?", "A különböző programok és kezelések esetében előzetes egyeztetés szükséges. Ennek során segítünk eldönteni, hogy melyik irány a legmegfelelőbb számodra."],
+    ["Milyen fizetési lehetőségek vannak? Van lehetőség egészségpénztári elszámolásra?", "Online foglalás esetén bankkártyás fizetésre van lehetőség, a rendelőben pedig készpénzzel és bankkártyával is fizethetsz. Az egészségpénztári elszámolás lehetőségéről érdemes előre érdeklődni elérhetőségeinken, mivel ez szolgáltatásonként eltérhet."],
+    ["Mi a lemondási vagy módosítási feltétel?", "Az időpont a vizsgálat előtt legalább 24 órával lemondható vagy módosítható. 24 órán belüli lemondás esetén a szolgáltatás díjának 50%-a kerül felszámításra."],
+    ["Van parkolási lehetőség a közelben?", "A rendelő közvetlen környékén fizetős utcai parkolás érhető el. Mivel a belvárosi övezetben a szabad helyek száma változó, érdemes 10-15 perccel korábban érkezni, hogy kényelmesen találj parkolóhelyet."],
 ];
+
+const questions = computed(() =>
+    DEFAULTS.map(([q, a], i) => ({
+        question: t(`gyik.q${i + 1}.q`, q),
+        answer: t(`gyik.q${i + 1}.a`, a),
+    })),
+);
 
 const openedQuestions = ref([]); // Több nyitott kérdés indexeit tároljuk
 

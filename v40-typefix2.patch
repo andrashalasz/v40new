@@ -1,0 +1,255 @@
+From 12af97add180a5690222c52527101a51e92c760f Mon Sep 17 00:00:00 2001
+From: V40 Vital <dev@v40vital.hu>
+Date: Thu, 13 Aug 2026 14:12:28 +0000
+Subject: [PATCH] =?UTF-8?q?A=20marad=C3=A9k=20t=C3=ADpushib=C3=A1k=20jav?=
+ =?UTF-8?q?=C3=ADt=C3=A1sa=20(11=20->=200)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A session típuskiegészítése két helyre került
+A types/auth.d.ts a gyökérben volt, ahol EGYIK generált TypeScript projekt sem
+látta – a Nuxt külön projektet készít az app és a server könyvtárnak. Ezért a
+`session.user.role` és a `user.email` továbbra is hibát adott. Most
+app/types/auth.d.ts és server/types/auth.d.ts van, szándékos duplikációval;
+a fájl kommentje jelzi, hogy mindkettőt módosítani kell.
+
+nitro.port: érvénytelen kulcs volt, tehát soha nem hatott
+A dev szerver valójában a 3000-en futott, miközben a README, a Dockerfile és a
+.env.example 3001-et hirdetett. A port a `devServer.port` alá tartozik, nem a
+Nitro alá. Ez a fajta eltérés cPanelen órákig kereshető hiba, és csak azért
+derült ki, mert a nitro.externals javítása után a típusellenőrzés végre eljutott
+eddig a sorig.
+
+A cron-titok összehasonlítása kétszeresen hibás volt
+A kézzel írt konstans idejű összehasonlítás `padEnd`/`slice`-szal csonkította a
+bemenetet, és az indexelés kifutott a rövidebb bufferből (a típusellenőrzés
+pontosan ezt jelezte). Helyette a Node beépített timingSafeEqual-ja van,
+sha256 hash-ekre alkalmazva: a hash miatt a hosszak mindig egyeznek, így a
+függvény nem dob, és a titok hossza sem szivárog ki. Ellenőrizve üres,
+prefix-egyező és 5000 karakteres bemenetre is.
+
+A tesztek kikerültek a server/ alól
+A tesztfájl a Nuxt server projektjében volt, ezért a Nuxt típusellenőrizte, és
+a `./availability.ts` importot hibának jelezte – a kiterjesztés viszont
+kötelező a node --experimental-strip-types futtatáshoz. A tesztek nem az
+alkalmazás részei, ezért tests/booking/ alá kerültek. Így a Nuxt konfigurációját
+sem kell miattuk hajlítani (az allowImportingTsExtensions kikerült).
+
+27 teszt zöld, három időzónában ellenőrizve.
+---
+ README.md                                     |  4 +++-
+ app/types/auth.d.ts                           | 19 ++++++++++++++++
+ nuxt.config.ts                                | 19 +++++++---------
+ package.json                                  |  2 +-
+ server/types/auth.d.ts                        | 19 ++++++++++++++++
+ server/utils/guard.ts                         | 22 +++++++++++--------
+ .../booking/availability.test.ts              |  2 +-
+ types/auth.d.ts                               | 15 -------------
+ 8 files changed, 64 insertions(+), 38 deletions(-)
+ create mode 100644 app/types/auth.d.ts
+ create mode 100644 server/types/auth.d.ts
+ rename {server => tests}/booking/availability.test.ts (99%)
+ delete mode 100644 types/auth.d.ts
+
+diff --git a/README.md b/README.md
+index 441336d..3c737a9 100644
+--- a/README.md
++++ b/README.md
+@@ -125,7 +125,9 @@ npm run optimize:images
+ ```
+ app/                 Vue komponensek, oldalak (arculat – változatlan)
+ server/api/          meglévő endpointok (blog, termék, orvos, login)
+-server/booking/      foglalási motor + tesztek
++server/booking/      foglalási motor
++tests/               tesztek (a server/ alól kikerültek, hogy a Nuxt ne
++                     típusellenőrizze őket)
+ prisma/schema.prisma adatmodell (32 modell)
+ prisma/seed.ts       kezdőadatok
+ scripts/             képoptimalizáló
+diff --git a/app/types/auth.d.ts b/app/types/auth.d.ts
+new file mode 100644
+index 0000000..115a919
+--- /dev/null
++++ b/app/types/auth.d.ts
+@@ -0,0 +1,19 @@
++/**
++ * A nuxt-auth-utils `User` típusának kiegészítése.
++ *
++ * Enélkül a `session.user.role` és a `user.email` olvasása típushibát ad, mert
++ * a modul alapból üres `User` interfészt exportál.
++ *
++ * A fájl SZÁNDÉKOSAN két helyen szerepel: a Nuxt külön TypeScript projektet
++ * generál az app és a server könyvtárnak, és egy gyökérben lévő .d.ts egyik
++ * projektbe sem kerül be. Ha a tartalma változik, mindkettőt módosítani kell.
++ */
++declare module '#auth-utils' {
++  interface User {
++    id: number
++    email: string
++    role: 'USER' | 'STAFF' | 'ADMIN'
++  }
++}
++
++export {}
+diff --git a/nuxt.config.ts b/nuxt.config.ts
+index 3e05f52..55ae930 100644
+--- a/nuxt.config.ts
++++ b/nuxt.config.ts
+@@ -20,8 +20,15 @@ export default defineNuxtConfig({
+     }
+   },
+ 
+-  nitro: {
++  // A port a fejlesztői szerver beállítása, nem Nitro-opció. A korábbi
++  // `nitro.port` érvénytelen kulcs volt, tehát valójában soha nem hatott:
++  // a dev szerver a 3000-en futott, miközben a README és a Dockerfile 3001-et
++  // hirdetett. Ez a fajta eltérés cPanelen órákig kereshető hiba.
++  devServer: {
+     port: 3001,
++  },
++
++  nitro: {
+     // Az `externals.include` nem létező opció volt (a típusellenőrzés fogta ki).
+     // A Prisma kliens külső modulként kezelése a `external` listával történik –
+     // így a query engine binárisa nem kerül bele a bundle-be.
+@@ -31,16 +38,6 @@ export default defineNuxtConfig({
+     },
+   },
+ 
+-  typescript: {
+-    // A tesztfájl `./availability.ts` alakban importál, mert a node
+-    // --experimental-strip-types futtatásához a kiterjesztés kötelező.
+-    tsConfig: {
+-      compilerOptions: {
+-        allowImportingTsExtensions: true,
+-      },
+-    },
+-  },
+-
+   modules: [
+     '@nuxtjs/tailwindcss',
+     'nuxt-auth-utils',
+diff --git a/package.json b/package.json
+index aa945f3..f9751a0 100644
+--- a/package.json
++++ b/package.json
+@@ -9,7 +9,7 @@
+     "preview": "nuxt preview",
+     "postinstall": "nuxt prepare",
+     "seed": "prisma db seed",
+-    "test": "node --experimental-strip-types --test server/booking/*.test.ts",
++    "test": "node --experimental-strip-types --test tests/**/*.test.ts",
+     "optimize:images": "node scripts/optimize-images.mjs",
+     "typecheck": "nuxt typecheck"
+   },
+diff --git a/server/types/auth.d.ts b/server/types/auth.d.ts
+new file mode 100644
+index 0000000..115a919
+--- /dev/null
++++ b/server/types/auth.d.ts
+@@ -0,0 +1,19 @@
++/**
++ * A nuxt-auth-utils `User` típusának kiegészítése.
++ *
++ * Enélkül a `session.user.role` és a `user.email` olvasása típushibát ad, mert
++ * a modul alapból üres `User` interfészt exportál.
++ *
++ * A fájl SZÁNDÉKOSAN két helyen szerepel: a Nuxt külön TypeScript projektet
++ * generál az app és a server könyvtárnak, és egy gyökérben lévő .d.ts egyik
++ * projektbe sem kerül be. Ha a tartalma változik, mindkettőt módosítani kell.
++ */
++declare module '#auth-utils' {
++  interface User {
++    id: number
++    email: string
++    role: 'USER' | 'STAFF' | 'ADMIN'
++  }
++}
++
++export {}
+diff --git a/server/utils/guard.ts b/server/utils/guard.ts
+index 2b1c4a7..b86332d 100644
+--- a/server/utils/guard.ts
++++ b/server/utils/guard.ts
+@@ -1,4 +1,5 @@
+ import type { H3Event } from 'h3'
++import { createHash, timingSafeEqual } from 'node:crypto'
+ import { prisma } from './prisma'
+ 
+ /**
+@@ -38,22 +39,25 @@ export async function requireAdmin(event: H3Event) {
+   return user
+ }
+ 
+-/** Cron endpointok védelme megosztott titokkal (fejléc vagy query). */
++/**
++ * Cron endpointok védelme megosztott titokkal (fejléc vagy query).
++ *
++ * A korábbi változat kézzel írt konstans idejű összehasonlítást használt, ami
++ * kétszeresen is hibás volt: a `padEnd`/`slice` csonkított, és az indexelés
++ * kifutott a rövidebb bufferből. Helyette a Node beépített `timingSafeEqual`-ja
++ * van, sha256 hash-ekre alkalmazva – a hash miatt a két bemenet hossza mindig
++ * egyezik, így a függvény nem dob, és a hossz sem szivárog ki.
++ */
+ export function requireCronSecret(event: H3Event) {
+   const expected = process.env.CRON_SECRET
+   if (!expected) {
+     throw createError({ statusCode: 500, statusMessage: 'A CRON_SECRET nincs beállítva.' })
+   }
+-  const got =
+-    getHeader(event, 'x-cron-secret') ?? String(getQuery(event).secret ?? '')
+ 
+-  // Konstans idejű összehasonlítás: hosszalapú kiszivárgás ellen
+-  const a = Buffer.from(expected)
+-  const b = Buffer.from(got.padEnd(expected.length).slice(0, expected.length))
+-  let diff = a.length === b.length ? 0 : 1
+-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
++  const got = getHeader(event, 'x-cron-secret') ?? String(getQuery(event).secret ?? '')
++  const digest = (v: string) => createHash('sha256').update(v).digest()
+ 
+-  if (diff !== 0) {
++  if (!timingSafeEqual(digest(expected), digest(got))) {
+     throw createError({ statusCode: 401, statusMessage: 'Érvénytelen titok.' })
+   }
+ }
+diff --git a/server/booking/availability.test.ts b/tests/booking/availability.test.ts
+similarity index 99%
+rename from server/booking/availability.test.ts
+rename to tests/booking/availability.test.ts
+index 26f6220..b3126c3 100644
+--- a/server/booking/availability.test.ts
++++ b/tests/booking/availability.test.ts
+@@ -9,7 +9,7 @@ import {
+   toBusyBlocks,
+   type AvailabilityInput,
+   type WorkingHoursRule,
+-} from './availability.ts'
++} from '../../server/booking/availability.ts'
+ 
+ // ---------------------------------------------------------------------------
+ //  Segédek
+diff --git a/types/auth.d.ts b/types/auth.d.ts
+deleted file mode 100644
+index 4dd1c8b..0000000
+--- a/types/auth.d.ts
++++ /dev/null
+@@ -1,15 +0,0 @@
+-/**
+- * A nuxt-auth-utils `User` típusának kiegészítése.
+- *
+- * Enélkül a `session.user.role` és a `user.email` típushibát adott mindenhol,
+- * ahol a szerepkört olvassuk – a modul alapból üres `User` interfészt exportál.
+- */
+-declare module '#auth-utils' {
+-  interface User {
+-    id: number
+-    email: string
+-    role: 'USER' | 'STAFF' | 'ADMIN'
+-  }
+-}
+-
+-export {}
+-- 
+2.43.0
+

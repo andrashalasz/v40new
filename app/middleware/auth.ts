@@ -1,5 +1,6 @@
 export default defineNuxtRouteMiddleware((to) => {
   const { loggedIn } = useUserSession()
-  // A visszatérési útvonalat átadjuk, hogy belépés után ide jöjjön vissza.
-  if (!loggedIn.value) return navigateTo(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
+  // Ügyfél-oldali védelem: a belépés/regisztráció az ügyfél-oldalon történik,
+  // NEM az admin belépőn. A visszatérési útvonalat átadjuk.
+  if (!loggedIn.value) return navigateTo(`/belepes?redirect=${encodeURIComponent(to.fullPath)}`)
 })

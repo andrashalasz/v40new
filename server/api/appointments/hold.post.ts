@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto'
 import { prisma } from '~~/server/utils/prisma'
 import { audit } from '~~/server/utils/audit'
 import { overlaps, toBusyBlocks } from '~~/server/booking/availability'
+import { sendAppointmentEmail } from '~~/server/utils/notifications'
 
 /**
  * Idősáv zárolása (HOLD).
@@ -310,6 +311,15 @@ export default defineEventHandler(async (event) => {
       roomId,
       startsAt: iso,
     })
+
+    // Visszaigazoló e-mail a megerősített foglalásokról (ON_SITE / PASS). Az
+    // ONLINE_CARD egyelőre HOLD, arról a fizetés után megy majd értesítés.
+    // Fire-and-forget: az e-mail hibája ne buktassa meg magát a foglalást.
+    if (settlement !== 'ONLINE_CARD') {
+      void sendAppointmentEmail(appointment.id, 'booking.confirmed').catch((e) =>
+        console.error('[notifications] visszaigazoló e-mail hiba:', e),
+      )
+    }
 
     return {
       ok: true,

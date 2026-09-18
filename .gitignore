@@ -27,6 +27,9 @@ logs
 public/uploads/*
 !public/uploads/.gitkeep
 
+# Páciens-dokumentumok (orvosi adat – SOHA nem verziókövetve, nem publikus)
+storage/
+
 /app/generated/prisma
 
 # Optimalizált képek kimenete

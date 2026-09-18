@@ -3,7 +3,6 @@
     <Banner />
     <WhyV40 />
     <Longevity />
-    <Services />
    <LatestBlogs />
    <System />
    <Doctors />

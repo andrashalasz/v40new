@@ -55,6 +55,7 @@ export const schemas = {
       .default([])
       .transform((a) => a.map((s) => s.trim()).filter(Boolean)),
     iconUrl: z.string().max(500).nullable().default(null),
+    heroImage: z.string().max(500).nullable().default(null),
     isActive: z.boolean().default(true),
     sortOrder: z.number().int().default(0),
   }),

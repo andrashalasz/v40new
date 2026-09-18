@@ -1,0 +1,3297 @@
+From 95a7e43f27c9b2d37ae4fc0d36a5ba6f7fa9e2f6 Mon Sep 17 00:00:00 2001
+From: V40 Vital <dev@v40vital.hu>
+Date: Thu, 13 Aug 2026 10:57:02 +0000
+Subject: [PATCH] =?UTF-8?q?Foglal=C3=A1si=20backend=20=C3=A9s=20admin=20CR?=
+ =?UTF-8?q?UD=20API?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Foglalási motor
+- computeFreeSlotsWithRooms: szoba-kapacitás. A "szabad-e a szakember?" kérdés
+  nem elég, két ügyfél nem férhet ugyanarra a kezelőágyra. A szobakiosztás
+  determinisztikus, és a válasz megmondja, melyik szoba lesz.
+- a jelöltgenerálás közös generátorba került, hogy a két belépési pont ne
+  másolat legyen; erre külön teszt van (deepEqual a két eredményre)
+- overlaps exportálva, hogy a foglalás-létrehozás ugyanezt használja
+- 27 teszt (20 -> 27), öt időzónában futtatva
+
+GET /api/availability
+- a rendelő nyitvatartása ÉS a szakember beosztása metszetben érvényes
+- a lemondott foglalás és a lejárt HOLD nem blokkol
+- legfeljebb 60 napos időszak kérdezhető
+
+POST /api/appointments/hold
+Három védelmi réteg a versenyhelyzet ellen, szándékosan:
+ 1. tranzakció + SELECT ... FOR UPDATE (REPEATABLE READ mellett gap lock is)
+ 2. slotLock (szakember+kezdés) és roomSlotLock (szoba+kezdés) egyedi kulcsok.
+    A roomSlotLock új: a slotLock csak a szakembert védte, két különböző orvos
+    ugyanabba a szobába tehetett volna foglalást azonos időpontra.
+ 3. a felkínálhatóság újraszámolása szerveroldalon – a kliens időpontjában
+    soha nem bízunk
+
+POST /api/appointments/cancel
+- slotLock és roomSlotLock NULL-ra, különben az idősáv örökre blokkolt maradna
+- bérletnél az alkalom visszaíródik, a levonás rekordja reversedAt-tel megmarad
+- a szabad lemondási határon belüli lemondás nem írja vissza az alkalmat
+
+Admin CRUD
+- egyetlen generikus implementáció öt entitásra; a különbségeket a resources.ts
+  leíró hordozza, így nem lehet egy entitásnál elfelejteni a jogosultságot
+  vagy az auditálást
+- Zod validálás, a *Ids mezők a kapcsolótáblákba mennek
+- a vatExemptReason a kulcsból következik, nem a kliens adja: egy 0%-os tétel
+  nem kerülhet indoklás nélkül számlára
+- P2002 -> 409 a konkrét ütköző mezővel
+
+Javítások az átvizsgálás során
+- server/api/utils/prisma.ts a server/api alatt volt, ezért a Nitro
+  /api/utils/prisma útvonalként regisztrálta, holott nem event handler.
+  Áthelyezve server/utils/prisma.ts-be, HMR-biztos példánnyal.
+- availability.get.ts: a beosztás összeállítása minden szabályhoz újra
+  végigszűrte a teljes listát -> egyszeri csoportosítás Map-be
+- a session szerepkörét mindig az adatbázisból olvassuk, nem a sütiből:
+  egy régi sütiben maradt ADMIN érték egyébként örökké érvényes lenne
+
+docs/prototipus-admin.html: a teljes admin (CRUD + beosztás + szövegek)
+---
+ ROADMAP.md                                    |  24 +-
+ docs/prototipus-admin-beosztas.html           | 507 ------------
+ docs/prototipus-admin.html                    | 776 ++++++++++++++++++
+ package-lock.json                             |  26 +-
+ package.json                                  |  11 +-
+ prisma/schema.prisma                          |   6 +
+ .../api/admin/[resource]/[id]/index.delete.ts |   2 +
+ server/api/admin/[resource]/[id]/index.put.ts |   2 +
+ .../api/admin/[resource]/[id]/restore.post.ts |   2 +
+ server/api/admin/[resource]/index.get.ts      |   2 +
+ server/api/admin/[resource]/index.post.ts     |   2 +
+ server/api/admin/content/index.get.ts         |  13 +
+ server/api/admin/content/index.put.ts         |  47 ++
+ server/api/appointments/cancel.post.ts        |  94 +++
+ server/api/appointments/hold.post.ts          | 261 ++++++
+ server/api/availability.get.ts                | 230 ++++++
+ server/api/blogs.ts                           |   2 +-
+ server/api/blogs/add.ts                       |   2 +-
+ server/api/content.get.ts                     |  20 +
+ server/api/cron/release-holds.post.ts         |  51 ++
+ server/api/doctors.ts                         |   2 +-
+ server/api/login.ts                           |   2 +-
+ server/api/products.ts                        |   2 +-
+ server/api/products/types.ts                  |   2 +-
+ server/api/utils/prisma.ts                    |   7 -
+ server/booking/availability.test.ts           | 109 +++
+ server/booking/availability.ts                | 126 ++-
+ server/utils/audit.ts                         |  32 +
+ server/utils/crud.ts                          | 173 ++++
+ server/utils/guard.ts                         |  59 ++
+ server/utils/prisma.ts                        |  14 +
+ server/utils/resources.ts                     | 231 ++++++
+ 32 files changed, 2282 insertions(+), 557 deletions(-)
+ delete mode 100644 docs/prototipus-admin-beosztas.html
+ create mode 100644 docs/prototipus-admin.html
+ create mode 100644 server/api/admin/[resource]/[id]/index.delete.ts
+ create mode 100644 server/api/admin/[resource]/[id]/index.put.ts
+ create mode 100644 server/api/admin/[resource]/[id]/restore.post.ts
+ create mode 100644 server/api/admin/[resource]/index.get.ts
+ create mode 100644 server/api/admin/[resource]/index.post.ts
+ create mode 100644 server/api/admin/content/index.get.ts
+ create mode 100644 server/api/admin/content/index.put.ts
+ create mode 100644 server/api/appointments/cancel.post.ts
+ create mode 100644 server/api/appointments/hold.post.ts
+ create mode 100644 server/api/availability.get.ts
+ create mode 100644 server/api/content.get.ts
+ create mode 100644 server/api/cron/release-holds.post.ts
+ delete mode 100644 server/api/utils/prisma.ts
+ create mode 100644 server/utils/audit.ts
+ create mode 100644 server/utils/crud.ts
+ create mode 100644 server/utils/guard.ts
+ create mode 100644 server/utils/prisma.ts
+ create mode 100644 server/utils/resources.ts
+
+diff --git a/ROADMAP.md b/ROADMAP.md
+index 574077e..f7ed9c8 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -11,6 +11,15 @@ működőképes, bemutatható állapot van.
+ - [ ] Ha van éles adat: átköltöztető szkript (lásd `prisma/migrations_legacy/README.md`)
+ 
+ ## 2. Admin CRUD
++- [x] Backend: `/api/admin/{services|categories|practitioners|rooms|passes}`
++      – lista, létrehozás, módosítás, archiválás, visszaállítás
++- [x] Zod validálás, admin jogosultság, auditnapló minden íráson
++- [x] Szövegek: `GET/PUT /api/admin/content`, publikus `GET /api/content`
++- [ ] Nuxt admin oldalak a `docs/prototipus-admin.html` szerint
++- [ ] Beosztás endpointok (ClinicHours, WorkingHours, TimeOff)
++- [ ] Beállítások endpoint (ClinicSettings)
++
++### Eredeti lista
+ - [ ] Szakemberek: lista, felvétel, szerkesztés, archiválás, fotó feltöltés
+ - [ ] Kezelések: ár, áfa, hossz, pufferek, előjegyzési idő, szoba-hozzárendelés
+ - [ ] Kezelés-típusok: ikon, rövid leírás, felugró ablak bekezdései
+@@ -28,12 +37,15 @@ A tervezett felület a `docs/prototipus-admin-beosztas.html`-ben látható.
+       (így egy üres blokk nem tud üres oldalt eredményezni)
+ 
+ ## 4. Foglalási folyamat backend
+-- [ ] `GET /api/availability` – a `server/booking/availability.ts` fölé
+-- [ ] `POST /api/appointments/hold` – tranzakcióban, `SELECT ... FOR UPDATE`,
+-      `slotLock` beírásával
+-- [ ] Szoba-kapacitás beépítése a motorba (metszet + szabad szoba keresés)
+-- [ ] Lemondás: `slotLock` NULL-ra, bérlet-alkalom visszaírás
+-- [ ] Cron: lejárt `HOLD` felszabadítása
++- [x] Szoba-kapacitás a motorban (`computeFreeSlotsWithRooms`, 7 új teszt)
++- [x] `GET /api/availability` – nyitvatartás ∩ beosztás, szobakiosztással
++- [x] `POST /api/appointments/hold` – tranzakció + `FOR UPDATE`, `slotLock`,
++      `roomSlotLock`, és a felkínálhatóság szerveroldali újraszámolása
++- [x] `POST /api/appointments/cancel` – zárolás feloldása, bérlet-alkalom
++      visszaírása `reversedAt`-tel
++- [x] `POST /api/cron/release-holds` – lejárt zárolások felszabadítása
++- [ ] Áttétel (reschedule)
++- [ ] E-mail visszaigazolás bekötése
+ 
+ ## 5. Ügyfélfiók
+ - [ ] Regisztráció + e-mail megerősítés
+diff --git a/docs/prototipus-admin-beosztas.html b/docs/prototipus-admin-beosztas.html
+deleted file mode 100644
+index a2be257..0000000
+--- a/docs/prototipus-admin-beosztas.html
++++ /dev/null
+@@ -1,507 +0,0 @@
+-<meta charset="utf-8">
+-<title>V40 Vital – Admin: beosztás és foglalási szabályok</title>
+-<link rel="preconnect" href="https://fonts.googleapis.com">
+-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+-
+-<style>
+-  :root {
+-    --ink: #171008;
+-    --brand: #153131;
+-    --sand: #F4F4F0;
+-    --mint: #E5F7F9;
+-    --line: #E4E4DE;
+-    --muted: #6B6660;
+-    --warn: #A6541B;
+-    --warn-bg: #FDF3EA;
+-    --ok: #1F6B4A;
+-    --ok-bg: #EFF7F2;
+-  }
+-  * { box-sizing: border-box; }
+-  body {
+-    margin: 0; background: var(--sand); color: var(--ink);
+-    font-family: 'Manrope', system-ui, sans-serif; font-size: 14px; line-height: 1.5;
+-  }
+-  .dm { font-family: 'DM Sans', system-ui, sans-serif; }
+-
+-  header {
+-    background: #fff; border-bottom: 1px solid var(--line);
+-    padding: 18px 28px; display: flex; align-items: baseline; gap: 14px;
+-    position: sticky; top: 0; z-index: 10;
+-  }
+-  header h1 { font-family: 'DM Sans', sans-serif; font-size: 19px; font-weight: 700; margin: 0; }
+-  header .crumb { color: var(--muted); font-size: 13px; }
+-  .badge {
+-    margin-left: auto; background: var(--mint); color: var(--brand);
+-    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+-    padding: 5px 10px; border-radius: 4px;
+-  }
+-
+-  .wrap { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: 22px; padding: 22px 28px 60px; align-items: start; }
+-  @media (max-width: 1080px) { .wrap { grid-template-columns: 1fr; } }
+-
+-  nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+-  nav.tabs button {
+-    font: inherit; font-weight: 600; cursor: pointer; padding: 9px 15px;
+-    border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 7px;
+-  }
+-  nav.tabs button[aria-selected="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+-
+-  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+-  .card > h2 { font-family: 'DM Sans', sans-serif; font-size: 16px; margin: 0 0 4px; }
+-  .card > p.hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+-
+-  .dayrow { display: grid; grid-template-columns: 108px 1fr; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); align-items: start; }
+-  .dayrow:first-of-type { border-top: 0; }
+-  .dayname { font-weight: 600; padding-top: 6px; }
+-  .dayname small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; }
+-  .blocks { display: flex; flex-direction: column; gap: 7px; }
+-  .block { display: flex; align-items: center; gap: 7px; }
+-  input[type=time], input[type=number], input[type=date], select, input[type=text] {
+-    font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
+-  }
+-  input[type=number] { width: 84px; }
+-  .iconbtn {
+-    font: inherit; cursor: pointer; border: 1px solid var(--line); background: #fff;
+-    color: var(--muted); border-radius: 6px; width: 30px; height: 32px; line-height: 1;
+-  }
+-  .iconbtn:hover { border-color: var(--warn); color: var(--warn); }
+-  .addbtn { font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; border: 1px dashed var(--line); background: transparent; color: var(--brand); border-radius: 6px; padding: 6px 11px; align-self: flex-start; }
+-  .closed { color: var(--muted); font-size: 13px; padding-top: 7px; }
+-
+-  table { width: 100%; border-collapse: collapse; }
+-  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+-  th { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+-  td.name { font-weight: 600; }
+-  td.name small { display: block; color: var(--muted); font-weight: 400; }
+-
+-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+-  @media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; } }
+-  .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+-  .field small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+-
+-  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+-  .switch input { width: 16px; height: 16px; accent-color: var(--brand); }
+-
+-  aside .card { position: sticky; top: 82px; }
+-  .slotlist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; max-height: 260px; overflow: auto; }
+-  .slot { background: var(--mint); color: var(--brand); font-weight: 600; font-size: 12.5px; padding: 6px 9px; border-radius: 5px; }
+-  .metric { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+-  .metric b { font-variant-numeric: tabular-nums; }
+-
+-  .note { border-radius: 8px; padding: 10px 12px; font-size: 12.5px; margin-top: 12px; }
+-  .note.warn { background: var(--warn-bg); color: var(--warn); }
+-  .note.ok { background: var(--ok-bg); color: var(--ok); }
+-  .note ul { margin: 6px 0 0; padding-left: 18px; }
+-
+-  .save { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+-  .save button { font: inherit; font-weight: 700; cursor: pointer; background: var(--brand); color: #fff; border: 0; border-radius: 8px; padding: 11px 22px; }
+-  .save span { color: var(--muted); font-size: 12.5px; }
+-  .hidden { display: none; }
+-</style>
+-
+-<header>
+-  <h1 class="dm">Beosztás és foglalási szabályok</h1>
+-  <span class="crumb">Admin / Foglalás</span>
+-  <span class="badge">Prototípus</span>
+-</header>
+-
+-<div class="wrap">
+-  <main>
+-    <nav class="tabs" id="tabs"></nav>
+-    <div id="panel"></div>
+-    <div class="save">
+-      <button onclick="fakeSave()">Mentés</button>
+-      <span id="savemsg">A prototípus nem ment adatbázisba – a beállítások csak az előnézetet vezérlik.</span>
+-    </div>
+-  </main>
+-
+-  <aside>
+-    <div class="card">
+-      <h2 class="dm">Élő előnézet</h2>
+-      <p class="hint">Ezt látja majd az ügyfél a kiválasztott napon.</p>
+-      <div class="field" style="margin-bottom:10px">
+-        <label>Kezelés</label>
+-        <select id="pvService" style="width:100%"></select>
+-      </div>
+-      <div class="field" style="margin-bottom:10px">
+-        <label>Szakember</label>
+-        <select id="pvPract" style="width:100%"></select>
+-      </div>
+-      <div class="field" style="margin-bottom:14px">
+-        <label>Nap</label>
+-        <input type="date" id="pvDate" style="width:100%">
+-      </div>
+-      <div id="pvMetrics"></div>
+-      <div class="slotlist" id="pvSlots"></div>
+-      <div id="pvNotes"></div>
+-    </div>
+-  </aside>
+-</div>
+-
+-<script>
+-// ---------------------------------------------------------------------------
+-//  Állapot – éles rendszerben ez a ClinicSettings / ClinicHours / WorkingHours
+-//  / Service / Room táblákból jön.
+-// ---------------------------------------------------------------------------
+-const DAYS = ['Hétfő','Kedd','Szerda','Csütörtök','Péntek','Szombat','Vasárnap'];
+-
+-const state = {
+-  settings: {
+-    slotGranularityMin: 15,
+-    holdMinutes: 15,
+-    defaultMinLeadTimeHours: 24,
+-    defaultMaxLeadTimeDays: 90,
+-    freeCancellationHours: 24,
+-    reminderHoursBefore: 24,
+-    requireBuffersInsideHours: false,
+-    allowOnlineCancellation: true,
+-    allowOnlineReschedule: true,
+-  },
+-  clinicHours: { 1:[[540,1140]], 2:[[540,1140]], 3:[[540,1140]], 4:[[540,1140]], 5:[[540,1020]], 6:[[600,840]], 7:[] },
+-  rooms: [
+-    { id:1, name:'Infúziós szoba A' },
+-    { id:2, name:'Infúziós szoba B' },
+-    { id:3, name:'Vizsgáló' },
+-  ],
+-  practitioners: [
+-    { id:1, name:'Dr. Vértes Anna', hours:{1:[[540,780],[840,1140]],2:[[540,1140]],3:[],4:[[540,1140]],5:[[540,1020]],6:[],7:[]}, timeOff:[] },
+-    { id:2, name:'Dr. Szabó Gábor', hours:{1:[[600,1020]],2:[],3:[[600,1140]],4:[[600,1020]],5:[[600,1020]],6:[[600,840]],7:[]}, timeOff:[] },
+-  ],
+-  services: [
+-    { id:1, title:'NAD+ Energy',        durationMin:90,  bufferBefore:10, bufferAfter:15, leadH:24, maxD:90, online:true,  roomIds:[1,2] },
+-    { id:2, title:'Radiance bőrfiatalítás', durationMin:60, bufferBefore:0, bufferAfter:15, leadH:24, maxD:60, online:true,  roomIds:[3] },
+-    { id:3, title:'CardioFit felmérés', durationMin:45,  bufferBefore:0,  bufferAfter:10, leadH:48, maxD:90, online:true,  roomIds:[3] },
+-    { id:4, title:'Signature konzultáció', durationMin:30, bufferBefore:0, bufferAfter:5, leadH:12, maxD:90, online:true, roomIds:[] },
+-  ],
+-};
+-
+-// ---------------------------------------------------------------------------
+-//  Idő-segédek (a nap perceiben – az előnézet egy napra szól)
+-// ---------------------------------------------------------------------------
+-const toHM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+-const toMin = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
+-
+-function intersect(a, b) {
+-  const out = [];
+-  for (const [s1,e1] of a) for (const [s2,e2] of b) {
+-    const s = Math.max(s1,s2), e = Math.min(e1,e2);
+-    if (e > s) out.push([s,e]);
+-  }
+-  return out.sort((x,y)=>x[0]-y[0]);
+-}
+-function subtract(blocks, cuts) {
+-  let out = blocks.map(b=>[...b]);
+-  for (const [cs,ce] of cuts) {
+-    const next = [];
+-    for (const [s,e] of out) {
+-      if (ce <= s || cs >= e) { next.push([s,e]); continue; }
+-      if (cs > s) next.push([s,cs]);
+-      if (ce < e) next.push([ce,e]);
+-    }
+-    out = next;
+-  }
+-  return out;
+-}
+-
+-// ---------------------------------------------------------------------------
+-//  Szabad idősávok – a szerveroldali motor egyszerűsített, egynapos mása
+-// ---------------------------------------------------------------------------
+-function computePreview() {
+-  const svc = state.services.find(s => s.id === +document.getElementById('pvService').value);
+-  const pr  = state.practitioners.find(p => p.id === +document.getElementById('pvPract').value);
+-  const dateStr = document.getElementById('pvDate').value;
+-  if (!svc || !pr || !dateStr) return null;
+-
+-  const d = new Date(dateStr + 'T12:00:00');
+-  const iso = d.getDay() === 0 ? 7 : d.getDay();
+-
+-  const clinic = state.clinicHours[iso] || [];
+-  const pract  = pr.hours[iso] || [];
+-  const open   = subtract(intersect(clinic, pract), pr.timeOff.filter(t=>t.weekday===iso).map(t=>[t.start,t.end]));
+-
+-  const step = state.settings.slotGranularityMin;
+-  const need = svc.durationMin;
+-  const occupiedLen = svc.bufferBefore + svc.durationMin + svc.bufferAfter;
+-
+-  const slots = [];
+-  for (const [ws,we] of open) {
+-    for (let t = ws; t + need <= we; t += step) {
+-      if (state.settings.requireBuffersInsideHours &&
+-          (t - svc.bufferBefore < ws || t + need + svc.bufferAfter > we)) continue;
+-      slots.push(t);
+-    }
+-  }
+-
+-  // Előjegyzési korlát: a mai naptól számított minimum
+-  const today = new Date(); today.setHours(0,0,0,0);
+-  const daysAhead = Math.round((new Date(dateStr+'T00:00:00') - today) / 86400000);
+-  const leadDays = svc.leadH / 24;
+-
+-  const warnings = [];
+-  if (!clinic.length)      warnings.push('Ezen a napon a rendelő zárva van.');
+-  else if (!pract.length)  warnings.push(`${pr.name} ezen a napon nem rendel.`);
+-  else if (!open.length)   warnings.push('A szakember beosztása nem fedi a rendelő nyitvatartását.');
+-  else if (!slots.length)  warnings.push(`A kezelés ${need} perce nem fér bele egyetlen szabad sávba sem.`);
+-
+-  if (daysAhead < leadDays)
+-    warnings.push(`Az előjegyzési korlát (${svc.leadH} óra) miatt ez a nap az ügyfélnek nem is jelenne meg.`);
+-  if (daysAhead > svc.maxD)
+-    warnings.push(`A naptár csak ${svc.maxD} napra előre nyitott – ez a nap még zárt.`);
+-  if (!svc.roomIds.length)
+-    warnings.push('Ehhez a kezeléshez nincs szoba hozzárendelve, tehát a párhuzamos kapacitás nincs korlátozva.');
+-  if (!svc.online)
+-    warnings.push('Ez a kezelés nem foglalható online.');
+-
+-  return { svc, pr, open, slots, occupiedLen, warnings, iso };
+-}
+-
+-function renderPreview() {
+-  const r = computePreview();
+-  const mEl = document.getElementById('pvMetrics');
+-  const sEl = document.getElementById('pvSlots');
+-  const nEl = document.getElementById('pvNotes');
+-  if (!r) { mEl.innerHTML = sEl.innerHTML = nEl.innerHTML = ''; return; }
+-
+-  mEl.innerHTML = `
+-    <div class="metric"><span>Rendelési idő (metszet)</span><b>${
+-      r.open.length ? r.open.map(([s,e])=>`${toHM(s)}–${toHM(e)}`).join(', ') : '—'}</b></div>
+-    <div class="metric"><span>Egy foglalás helyfoglalása</span><b>${r.occupiedLen} perc</b></div>
+-    <div class="metric"><span>Szabad időpont</span><b>${r.slots.length} db</b></div>
+-    <div class="metric"><span>Szobák</span><b>${
+-      r.svc.roomIds.length ? r.svc.roomIds.map(id=>state.rooms.find(x=>x.id===id)?.name).join(', ') : 'nincs'}</b></div>`;
+-
+-  sEl.innerHTML = r.slots.map(t=>`<span class="slot">${toHM(t)}</span>`).join('');
+-
+-  nEl.innerHTML = r.warnings.length
+-    ? `<div class="note warn"><b>Figyelem</b><ul>${r.warnings.map(w=>`<li>${w}</li>`).join('')}</ul></div>`
+-    : `<div class="note ok">A beállítások konzisztensek, a nap foglalható.</div>`;
+-}
+-
+-// ---------------------------------------------------------------------------
+-//  Heti beosztás-szerkesztő (nyitvatartás és szakember egyaránt ezt használja)
+-// ---------------------------------------------------------------------------
+-function weekEditor(getMap, onChange) {
+-  const map = getMap();
+-  return DAYS.map((name, i) => {
+-    const iso = i + 1;
+-    const blocks = map[iso] || [];
+-    const isOpen = blocks.length > 0;
+-    return `
+-      <div class="dayrow">
+-        <div class="dayname">${name}
+-          <small>${isOpen ? blocks.reduce((a,[s,e])=>a+(e-s),0)/60 + ' óra' : 'zárva'}</small>
+-        </div>
+-        <div class="blocks">
+-          ${blocks.map(([s,e],bi)=>`
+-            <div class="block">
+-              <input type="time" value="${toHM(s)}" data-iso="${iso}" data-bi="${bi}" data-edge="s">
+-              <span style="color:var(--muted)">–</span>
+-              <input type="time" value="${toHM(e)}" data-iso="${iso}" data-bi="${bi}" data-edge="e">
+-              <button class="iconbtn" data-del="${iso}:${bi}" title="Sáv törlése">×</button>
+-              ${e<=s ? '<span style="color:var(--warn);font-size:12px">a záró idő nem lehet korábbi</span>' : ''}
+-            </div>`).join('')
+-          || '<div class="closed">Zárva – nincs foglalható idősáv.</div>'}
+-          <button class="addbtn" data-add="${iso}">+ Idősáv hozzáadása</button>
+-        </div>
+-      </div>`;
+-  }).join('');
+-}
+-
+-function bindWeekEditor(root, getMap) {
+-  const map = getMap();
+-  root.querySelectorAll('input[type=time]').forEach(inp => {
+-    inp.addEventListener('change', () => {
+-      const iso = +inp.dataset.iso, bi = +inp.dataset.bi;
+-      map[iso][bi][inp.dataset.edge === 's' ? 0 : 1] = toMin(inp.value);
+-      render();
+-    });
+-  });
+-  root.querySelectorAll('[data-del]').forEach(btn => {
+-    btn.addEventListener('click', () => {
+-      const [iso, bi] = btn.dataset.del.split(':').map(Number);
+-      map[iso].splice(bi, 1);
+-      render();
+-    });
+-  });
+-  root.querySelectorAll('[data-add]').forEach(btn => {
+-    btn.addEventListener('click', () => {
+-      const iso = +btn.dataset.add;
+-      (map[iso] = map[iso] || []).push([540, 1020]);
+-      render();
+-    });
+-  });
+-}
+-
+-// ---------------------------------------------------------------------------
+-//  Fülek
+-// ---------------------------------------------------------------------------
+-let activeTab = 'nyitva';
+-let activePract = 1;
+-
+-const TABS = {
+-  nyitva:   'Nyitvatartás',
+-  szakember:'Szakemberek',
+-  kezeles:  'Kezelések',
+-  szabaly:  'Foglalási szabályok',
+-  szoba:    'Szobák',
+-};
+-
+-function panelHtml() {
+-  if (activeTab === 'nyitva') return `
+-    <div class="card">
+-      <h2 class="dm">A rendelő nyitvatartása</h2>
+-      <p class="hint">Ez a külső korlát. Foglalni csak ott lehet, ahol a szakember beosztása is nyitva van – a kettő metszete számít.</p>
+-      <div id="weekRoot">${weekEditor(()=>state.clinicHours)}</div>
+-    </div>`;
+-
+-  if (activeTab === 'szakember') {
+-    const pr = state.practitioners.find(p=>p.id===activePract);
+-    return `
+-    <div class="card">
+-      <h2 class="dm">Szakemberek beosztása</h2>
+-      <p class="hint">Egyéni rendelési idő. A délelőtti és délutáni sáv külön vehető fel – ami közte van, az ebédszünet.</p>
+-      <div class="field" style="max-width:280px;margin-bottom:16px">
+-        <label>Szakember</label>
+-        <select id="practPick" style="width:100%">
+-          ${state.practitioners.map(p=>`<option value="${p.id}" ${p.id===activePract?'selected':''}>${p.name}</option>`).join('')}
+-        </select>
+-      </div>
+-      <div id="weekRoot">${weekEditor(()=>pr.hours)}</div>
+-    </div>`;
+-  }
+-
+-  if (activeTab === 'kezeles') return `
+-    <div class="card">
+-      <h2 class="dm">Kezelések szabályai</h2>
+-      <p class="hint">A puffer az a takarítási/előkészítési idő, amit a rendszer a foglalás körül lefoglal, de nem számláz.</p>
+-      <table>
+-        <tr><th>Kezelés</th><th>Hossz</th><th>Puffer előtte</th><th>Puffer utána</th><th>Előjegyzés</th><th>Nyitott</th><th>Online</th></tr>
+-        ${state.services.map(s=>`
+-          <tr>
+-            <td class="name">${s.title}<small>helyfoglalás: ${s.bufferBefore+s.durationMin+s.bufferAfter} perc</small></td>
+-            <td><input type="number" min="5" step="5" value="${s.durationMin}" data-svc="${s.id}" data-k="durationMin"> p</td>
+-            <td><input type="number" min="0" step="5" value="${s.bufferBefore}" data-svc="${s.id}" data-k="bufferBefore"> p</td>
+-            <td><input type="number" min="0" step="5" value="${s.bufferAfter}" data-svc="${s.id}" data-k="bufferAfter"> p</td>
+-            <td><input type="number" min="0" value="${s.leadH}" data-svc="${s.id}" data-k="leadH"> ó</td>
+-            <td><input type="number" min="1" value="${s.maxD}" data-svc="${s.id}" data-k="maxD"> nap</td>
+-            <td><label class="switch"><input type="checkbox" ${s.online?'checked':''} data-svc="${s.id}" data-k="online"></label></td>
+-          </tr>`).join('')}
+-      </table>
+-    </div>`;
+-
+-  if (activeTab === 'szabaly') {
+-    const s = state.settings;
+-    return `
+-    <div class="card">
+-      <h2 class="dm">Globális foglalási szabályok</h2>
+-      <p class="hint">Ezek minden kezelésre érvényesek, kivéve ahol a kezelés saját értéket ad meg.</p>
+-      <div class="grid2">
+-        <div class="field"><label>Idősáv-raszter</label>
+-          <input type="number" min="5" step="5" value="${s.slotGranularityMin}" data-set="slotGranularityMin"> perc
+-          <small>Ekkora lépésekben kínálunk kezdési időpontot (pl. 09:00, 09:15).</small></div>
+-        <div class="field"><label>Zárolás fizetés közben</label>
+-          <input type="number" min="5" value="${s.holdMinutes}" data-set="holdMinutes"> perc
+-          <small>Ennyi ideig tartjuk az idősávot. Ha nem fizet, magától felszabadul.</small></div>
+-        <div class="field"><label>Ingyenes lemondás</label>
+-          <input type="number" min="0" value="${s.freeCancellationHours}" data-set="freeCancellationHours"> órával előtte
+-          <small>Bérletnél ezen belüli lemondás elviszi az alkalmat.</small></div>
+-        <div class="field"><label>Emlékeztető</label>
+-          <input type="number" min="1" value="${s.reminderHoursBefore}" data-set="reminderHoursBefore"> órával előtte
+-          <small>E-mailben, cron-ból küldve.</small></div>
+-      </div>
+-      <div style="margin-top:16px;display:flex;flex-direction:column;gap:9px">
+-        <label class="switch"><input type="checkbox" ${s.requireBuffersInsideHours?'checked':''} data-set="requireBuffersInsideHours">
+-          A puffer se nyúlhat túl a záráson</label>
+-        <label class="switch"><input type="checkbox" ${s.allowOnlineCancellation?'checked':''} data-set="allowOnlineCancellation">
+-          Az ügyfél lemondhat online</label>
+-        <label class="switch"><input type="checkbox" ${s.allowOnlineReschedule?'checked':''} data-set="allowOnlineReschedule">
+-          Az ügyfél átteheti az időpontot online</label>
+-      </div>
+-    </div>`;
+-  }
+-
+-  return `
+-    <div class="card">
+-      <h2 class="dm">Szobák és párhuzamos kapacitás</h2>
+-      <p class="hint">Ha egy kezeléshez szoba kell, és minden alkalmas szoba foglalt, nincs több szabad idősáv – akkor sem, ha a szakember épp szabad.</p>
+-      <table>
+-        <tr><th>Kezelés</th>${state.rooms.map(r=>`<th>${r.name}</th>`).join('')}</tr>
+-        ${state.services.map(s=>`
+-          <tr><td class="name">${s.title}</td>
+-          ${state.rooms.map(r=>`<td><input type="checkbox" ${s.roomIds.includes(r.id)?'checked':''}
+-             data-room="${s.id}:${r.id}" style="width:16px;height:16px;accent-color:var(--brand)"></td>`).join('')}
+-          </tr>`).join('')}
+-      </table>
+-      <div class="note warn" style="margin-top:14px">
+-        Szoba nélküli kezelésnél a rendszer csak a szakember idejét figyeli. Infúziós kezelésnél ez általában hiba,
+-        mert két ügyfél nem férhet egy ágyra.
+-      </div>
+-    </div>`;
+-}
+-
+-// ---------------------------------------------------------------------------
+-//  Render + kötések
+-// ---------------------------------------------------------------------------
+-function render() {
+-  document.getElementById('tabs').innerHTML = Object.entries(TABS)
+-    .map(([k,v])=>`<button data-tab="${k}" aria-selected="${k===activeTab}">${v}</button>`).join('');
+-  document.getElementById('tabs').querySelectorAll('button')
+-    .forEach(b=>b.onclick=()=>{ activeTab=b.dataset.tab; render(); });
+-
+-  const panel = document.getElementById('panel');
+-  panel.innerHTML = panelHtml();
+-
+-  const weekRoot = document.getElementById('weekRoot');
+-  if (weekRoot) {
+-    const getMap = activeTab === 'nyitva'
+-      ? () => state.clinicHours
+-      : () => state.practitioners.find(p=>p.id===activePract).hours;
+-    bindWeekEditor(weekRoot, getMap);
+-  }
+-
+-  const pick = document.getElementById('practPick');
+-  if (pick) pick.onchange = () => { activePract = +pick.value; render(); };
+-
+-  panel.querySelectorAll('[data-svc]').forEach(inp => {
+-    inp.onchange = () => {
+-      const svc = state.services.find(s=>s.id===+inp.dataset.svc);
+-      svc[inp.dataset.k] = inp.type === 'checkbox' ? inp.checked : +inp.value;
+-      render();
+-    };
+-  });
+-  panel.querySelectorAll('[data-set]').forEach(inp => {
+-    inp.onchange = () => {
+-      state.settings[inp.dataset.set] = inp.type === 'checkbox' ? inp.checked : +inp.value;
+-      render();
+-    };
+-  });
+-  panel.querySelectorAll('[data-room]').forEach(inp => {
+-    inp.onchange = () => {
+-      const [sid, rid] = inp.dataset.room.split(':').map(Number);
+-      const svc = state.services.find(s=>s.id===sid);
+-      svc.roomIds = inp.checked ? [...svc.roomIds, rid] : svc.roomIds.filter(x=>x!==rid);
+-      render();
+-    };
+-  });
+-
+-  renderPreview();
+-}
+-
+-function fakeSave() {
+-  const el = document.getElementById('savemsg');
+-  el.textContent = 'Prototípus – éles rendszerben itt PUT /api/admin/schedule hívás történne.';
+-  el.style.color = 'var(--warn)';
+-}
+-
+-// Előnézet-vezérlők feltöltése
+-const pvS = document.getElementById('pvService');
+-const pvP = document.getElementById('pvPract');
+-pvS.innerHTML = state.services.map(s=>`<option value="${s.id}">${s.title}</option>`).join('');
+-pvP.innerHTML = state.practitioners.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+-
+-const dd = new Date(); dd.setDate(dd.getDate() + 3);
+-document.getElementById('pvDate').value = dd.toISOString().slice(0,10);
+-[pvS, pvP, document.getElementById('pvDate')].forEach(el => el.onchange = renderPreview);
+-
+-render();
+-</script>
+diff --git a/docs/prototipus-admin.html b/docs/prototipus-admin.html
+new file mode 100644
+index 0000000..a78c085
+--- /dev/null
++++ b/docs/prototipus-admin.html
+@@ -0,0 +1,776 @@
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
++<title>V40 Vital – Admin (prototípus)</title>
++<link rel="preconnect" href="https://fonts.googleapis.com">
++<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
++
++<style>
++:root{--ink:#171008;--brand:#153131;--sand:#F4F4F0;--mint:#E5F7F9;--line:#E4E4DE;--muted:#6B6660;
++  --warn:#A6541B;--warnbg:#FDF3EA;--ok:#1F6B4A;--okbg:#EFF7F2}
++*{box-sizing:border-box}
++body{margin:0;background:var(--sand);color:var(--ink);font-family:'Manrope',system-ui,sans-serif;font-size:14px;line-height:1.5}
++.dm{font-family:'DM Sans',system-ui,sans-serif}
++button,input,select,textarea{font:inherit;color:inherit}
++
++.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
++@media(max-width:900px){.shell{grid-template-columns:1fr}}
++aside{background:var(--brand);color:#fff;padding:22px 14px;position:sticky;top:0;height:100vh;overflow:auto}
++@media(max-width:900px){aside{position:static;height:auto}}
++aside .brand{font-family:'DM Sans',sans-serif;font-weight:700;font-size:17px;padding:0 10px 4px}
++aside .brand span{color:#7FD8E4}
++aside .proto{display:inline-block;background:rgba(255,255,255,.14);font-size:9.5px;font-weight:700;
++  letter-spacing:.09em;text-transform:uppercase;padding:3px 7px;border-radius:3px;margin:6px 0 18px 10px}
++aside .grp{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);
++  padding:16px 10px 6px;font-weight:700}
++aside a{display:block;padding:9px 10px;border-radius:7px;color:rgba(255,255,255,.82);text-decoration:none;font-weight:500}
++aside a:hover{background:rgba(255,255,255,.08)}
++aside a.on{background:#fff;color:var(--brand);font-weight:700}
++
++main{padding:26px 30px 80px;min-width:0}
++@media(max-width:600px){main{padding:20px 16px 60px}}
++.head{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px}
++.head h1{font-family:'DM Sans',sans-serif;font-size:23px;margin:0}
++.head .sp{margin-left:auto;display:flex;gap:10px;align-items:center}
++.sub{color:var(--muted);margin:0 0 20px;max-width:780px}
++
++.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
++.card h2{font-family:'DM Sans',sans-serif;font-size:16px;margin:0 0 4px}
++.card p.hint{color:var(--muted);font-size:13px;margin:0 0 16px}
++
++.btn{cursor:pointer;border:0;border-radius:8px;padding:10px 18px;background:var(--brand);color:#fff;font-weight:600}
++.btn.out{background:#fff;color:var(--brand);border:1px solid var(--line)}
++.btn.sm{padding:7px 12px;font-size:12.5px}
++.btn.danger{background:#fff;color:var(--warn);border:1px solid #F0DCC9}
++.btn:disabled{opacity:.4;cursor:not-allowed}
++
++table{width:100%;border-collapse:collapse}
++th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
++th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700}
++td.name{font-weight:600}
++td.name small{display:block;color:var(--muted);font-weight:400}
++tr.arch td{opacity:.45}
++.num{font-variant-numeric:tabular-nums;white-space:nowrap}
++.right{text-align:right;white-space:nowrap}
++
++.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
++.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
++@media(max-width:700px){.grid2,.grid3{grid-template-columns:1fr}}
++.f{margin-bottom:14px}
++.f label{display:block;font-size:12px;font-weight:600;margin-bottom:5px}
++.f input,.f select,.f textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:#fff}
++.f textarea{resize:vertical}
++.f small{display:block;color:var(--muted);font-size:11.5px;margin-top:4px}
++.sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:500}
++.sw input{width:16px;height:16px;accent-color:var(--brand)}
++.chips{display:flex;flex-wrap:wrap;gap:8px}
++.chipbox{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;
++  padding:7px 13px;cursor:pointer;background:#fff}
++.chipbox.on{border-color:var(--brand);background:var(--mint);font-weight:600}
++.chipbox input{width:15px;height:15px;accent-color:var(--brand)}
++.search{max-width:260px}
++
++.para{display:flex;gap:8px;margin-bottom:8px}
++.para textarea{flex:1}
++.icon{cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:6px;
++  width:32px;height:34px;flex:0 0 auto}
++.icon:hover{border-color:var(--warn);color:var(--warn)}
++.dash{border:1px dashed var(--line);background:transparent;color:var(--brand);border-radius:7px;
++  padding:7px 12px;cursor:pointer;font-weight:600;font-size:12.5px}
++
++.dayrow{display:grid;grid-template-columns:104px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
++.dayrow:first-child{border-top:0}
++.dname{font-weight:600;padding-top:6px}
++.dname small{display:block;color:var(--muted);font-weight:400;font-size:11px}
++.blk{display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap}
++
++.note{border-radius:9px;padding:12px 14px;font-size:13px;margin:14px 0}
++.note.warn{background:var(--warnbg);color:var(--warn)}
++.note.ok{background:var(--okbg);color:var(--ok)}
++.note.info{background:var(--mint);color:var(--brand)}
++.pill{display:inline-block;font-size:11px;font-weight:700;border-radius:4px;padding:3px 8px}
++.pill.on{background:var(--okbg);color:var(--ok)}
++.pill.off{background:var(--warnbg);color:var(--warn)}
++.pill.tam{background:var(--mint);color:var(--brand)}
++
++.back{position:fixed;inset:0;background:rgba(23,16,8,.5);z-index:60;display:flex;align-items:flex-start;
++  justify-content:center;padding:30px 16px;overflow:auto}
++.modal{background:#fff;border-radius:14px;width:100%;max-width:720px;padding:26px;position:relative;
++  box-shadow:0 24px 60px rgba(0,0,0,.26)}
++.modal h2{font-family:'DM Sans',sans-serif;font-size:19px;margin:0 0 4px}
++.modal .x{position:absolute;right:14px;top:14px;width:32px;height:32px;border-radius:50%;
++  border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--muted)}
++.acts{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
++.toast{position:fixed;right:20px;bottom:20px;background:var(--brand);color:#fff;padding:13px 18px;
++  border-radius:10px;font-weight:600;z-index:90;box-shadow:0 12px 30px rgba(0,0,0,.24);max-width:380px}
++.mono{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
++.serp{border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:16px}
++</style>
++
++<div class="shell">
++  <aside>
++    <div class="brand dm">V<span>40</span> VITAL</div>
++    <span class="proto">Admin prototípus</span>
++    <nav id="nav"></nav>
++  </aside>
++  <main id="main"></main>
++</div>
++<div id="overlay"></div>
++
++<script>
++// ===========================================================================
++//  Adatok – éles rendszerben ezek a Prisma modellek
++// ===========================================================================
++const Ft = n => new Intl.NumberFormat('hu-HU').format(n) + ' Ft';
++const HM = m => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
++const MIN = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
++let uid = 1000;
++
++const db = {
++  rooms: [
++    { id:1, name:'Infúziós szoba A', isActive:true, archivedAt:null },
++    { id:2, name:'Infúziós szoba B', isActive:true, archivedAt:null },
++    { id:3, name:'Vizsgáló', isActive:true, archivedAt:null },
++    { id:4, name:'Kezelő', isActive:true, archivedAt:null },
++  ],
++  categories: [
++    { id:1, slug:'infuzios-kezelesek', name:'Infúziós kezelések', isActive:true, archivedAt:null,
++      shortDesc:'Az infúziós vitaminterápia során vitaminok, ásványi anyagok és antioxidánsok közvetlenül a véráramba kerülnek, így gyorsan hasznosulnak.',
++      longDesc:[
++        'Az infúziós vitaminterápia során a hatóanyagok kihagyják az emésztőrendszert, és közvetlenül a véráramba kerülnek. Így a felszívódás nem függ a bélrendszer állapotától.',
++        'A kezelés előtt minden esetben laborvizsgálat és orvosi konzultáció történik. Az összetételt ennek eredménye alapján állítjuk össze.',
++        'Egy infúzió jellemzően 45–90 perc, kényelmes fekvőfotelben. A kezelés után nincs felépülési idő.' ] },
++    { id:2, slug:'mikrobiome-programok', name:'Mikrobiome programok', isActive:true, archivedAt:null,
++      shortDesc:'A bélflóra egyensúlya alapvetően befolyásolja az emésztést, az immunrendszert és az anyagcserét.',
++      longDesc:[
++        'A bélflóra összetétele kapcsolatban áll az immunrendszer működésével, az anyagcserével és a gyulladásos folyamatokkal is.',
++        'A program egy otthon elvégezhető minta beküldésével indul.' ] },
++    { id:3, slug:'diagnosztika', name:'Diagnosztika', isActive:true, archivedAt:null,
++      shortDesc:'Laborpanelek és műszeres vizsgálatok orvosi kiértékeléssel.',
++      longDesc:['A diagnosztikai csomagok célja, hogy a döntések mérhető adatokon alapuljanak.'] },
++    { id:4, slug:'konzultacio', name:'Konzultáció', isActive:true, archivedAt:null,
++      shortDesc:'Első orvosi beszélgetés, célkitűzés és programtervezés.',
++      longDesc:['A konzultáció során felmérjük az előzményeket, a panaszokat és a célokat.'] },
++  ],
++  services: [
++    { id:1, slug:'nad-energy', title:'NAD+ Energy Infúzió', categoryId:1, priceGross:145000, vatRate:0,
++      durationMin:90, bufferBeforeMin:10, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:90,
++      roomIds:[1,2], isBookableOnline:true, archivedAt:null,
++      desc:'Sejtszintű energiatermelés támogatása NAD+ prekurzorokkal, orvosi felügyelet mellett.' },
++    { id:2, slug:'powerfuel', title:'Powerfuel Sport Regeneráció', categoryId:1, priceGross:119000, vatRate:0,
++      durationMin:75, bufferBeforeMin:10, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:90,
++      roomIds:[1,2], isBookableOnline:true, archivedAt:null,
++      desc:'Aminosav- és elektrolitpótlás intenzív edzésterhelés vagy verseny után.' },
++    { id:3, slug:'radiance', title:'Radiance Bőrfiatalítás', categoryId:null, priceGross:89000, vatRate:27,
++      durationMin:60, bufferBeforeMin:0, bufferAfterMin:15, minLeadTimeHours:24, maxLeadTimeDays:60,
++      roomIds:[4], isBookableOnline:true, archivedAt:null,
++      desc:'Kombinált antioxidáns és kollagén-stimuláló protokoll.' },
++    { id:4, slug:'cardiofit', title:'CardioFit Állapotfelmérés', categoryId:3, priceGross:65000, vatRate:0,
++      durationMin:45, bufferBeforeMin:0, bufferAfterMin:10, minLeadTimeHours:48, maxLeadTimeDays:90,
++      roomIds:[3], isBookableOnline:true, archivedAt:null,
++      desc:'Kardiovaszkuláris terhelési vizsgálat és laborpanel.' },
++    { id:5, slug:'signature-konzultacio', title:'Signature Longevity Konzultáció', categoryId:4,
++      priceGross:45000, vatRate:0, durationMin:30, bufferBeforeMin:0, bufferAfterMin:5,
++      minLeadTimeHours:12, maxLeadTimeDays:90, roomIds:[3], isBookableOnline:true, archivedAt:null,
++      desc:'Első orvosi beszélgetés és programtervezés.' },
++  ],
++  practitioners: [
++    { id:1, slug:'dr-vertes-anna', name:'Dr. Vértes Anna', titles:'Dr.',
++      category:'belgyógyász, longevity szakértő', serviceIds:[1,2,5], archivedAt:null,
++      desc:'Több mint 15 év belgyógyászati tapasztalattal a metabolikus egészség területén.',
++      hours:{1:[[540,780],[840,1140]],2:[[540,1140]],3:[],4:[[540,1140]],5:[[540,1020]],6:[],7:[]} },
++    { id:2, slug:'dr-szabo-gabor', name:'Dr. Szabó Gábor', titles:'Dr.', category:'kardiológus',
++      serviceIds:[4,5], archivedAt:null,
++      desc:'Kardiovaszkuláris prevencióval és terheléses diagnosztikával foglalkozik.',
++      hours:{1:[[600,1020]],2:[],3:[[600,1140]],4:[[600,1020]],5:[[600,1020]],6:[[480,720]],7:[]} },
++    { id:3, slug:'dr-gajer-peter', name:'Dr. Gájer Péter', titles:'Dr.', category:'sportorvos',
++      serviceIds:[2,4,5], archivedAt:null,
++      desc:'Teljesítmény-optimalizálás és regenerációs protokollok.',
++      hours:{1:[[480,900]],2:[[480,900]],3:[[480,900]],4:[],5:[[480,780]],6:[],7:[]} },
++  ],
++  passes: [
++    { id:1, slug:'nad-berlet-5', title:'NAD+ Bérlet – 5 alkalom', priceGross:620000, vatRate:0,
++      sessionCount:5, validityDays:180, serviceIds:[1], transferable:false, archivedAt:null,
++      desc:'Öt alkalom NAD+ Energy infúzióra.' },
++    { id:2, slug:'infuzios-berlet-10', title:'Infúziós Bérlet – 10 alkalom', priceGross:1090000, vatRate:0,
++      sessionCount:10, validityDays:365, serviceIds:[1,2], transferable:false, archivedAt:null,
++      desc:'Tíz alkalom a NAD+ Energy és a Powerfuel kezelésekre.' },
++    { id:3, slug:'radiance-berlet-3', title:'Radiance Bérlet – 3 alkalom', priceGross:240000, vatRate:27,
++      sessionCount:3, validityDays:120, serviceIds:[3], transferable:false, archivedAt:null,
++      desc:'Három alkalom Radiance bőrfiatalításra.' },
++  ],
++  clinicHours:{1:[[420,1140]],2:[[420,1140]],3:[[420,1140]],4:[[420,1140]],5:[[420,1140]],6:[[480,720]],7:[]},
++  settings:{ slotGranularityMin:15, holdMinutes:15, freeCancellationHours:24, reminderHoursBefore:24,
++    requireBuffersInsideHours:false, allowOnlineCancellation:true, allowOnlineReschedule:true,
++    ga4MeasurementId:'', gtmContainerId:'', metaPixelId:'', cookieBannerEnabled:true },
++  content: [
++    { key:'home.hero.title', page:'home', group:'Hero', label:'Nyitóoldal – főcím', type:'TEXT', value:'Egészség egy hosszú életre' },
++    { key:'home.hero.lead', page:'home', group:'Hero', label:'Nyitóoldal – alcím', type:'RICHTEXT',
++      value:'Orvosi állapotfelmérésre épülő longevity program személyre szabott kezelésekkel és modern diagnosztikával.' },
++    { key:'home.hero.cta1', page:'home', group:'Hero', label:'Elsődleges gomb', type:'TEXT', value:'Időpontfoglalás' },
++    { key:'home.hero.cta2', page:'home', group:'Hero', label:'Másodlagos gomb', type:'TEXT', value:'Mi az a Longevity?' },
++    { key:'home.why.title', page:'home', group:'Miért a V40Vital?', label:'Cím', type:'TEXT', value:'Miért a V40Vital?' },
++    { key:'home.why.lead', page:'home', group:'Miért a V40Vital?', label:'Bevezető', type:'RICHTEXT',
++      value:'Az egészségmegőrzés nálunk nem általános tanácsokból, hanem adatokra épülő orvosi döntésekből indul.' },
++    { key:'home.types.title', page:'home', group:'Kezelés típusok', label:'Cím', type:'TEXT', value:'Kezelés típusok' },
++    { key:'home.types.lead', page:'home', group:'Kezelés típusok', label:'Bevezető', type:'RICHTEXT',
++      value:'Programjaink különböző egészségügyi célokra, panaszokra és élethelyzetekre kínálnak megoldást.' },
++    { key:'home.system.title', page:'home', group:'Hogyan működik?', label:'Cím', type:'TEXT', value:'Hogyan működik?' },
++    { key:'home.doctors.title', page:'home', group:'Orvosaink', label:'Cím', type:'TEXT', value:'Orvosaink' },
++    { key:'cta.title', page:'global', group:'Alsó sáv', label:'Cím', type:'TEXT', value:'Foglalj időpontot kedvezménnyel!' },
++    { key:'cta.hours', page:'global', group:'Alsó sáv', label:'Nyitvatartás', type:'RICHTEXT',
++      value:'Hétfő – Péntek: 7:00 – 19:00\nSzombat: 8:00 – 12:00' },
++    { key:'contact.phone', page:'global', group:'Elérhetőség', label:'Telefonszám', type:'TEXT', value:'+36 20 459 2248' },
++    { key:'contact.email', page:'global', group:'Elérhetőség', label:'E-mail cím', type:'TEXT', value:'info@v40vital.hu' },
++    { key:'contact.address', page:'global', group:'Elérhetőség', label:'Cím', type:'TEXT', value:'Budapest, Visegrádi utca 40.' },
++    { key:'footer.about', page:'global', group:'Footer', label:'Bemutatkozó', type:'RICHTEXT',
++      value:'A hosszú élet önmagában nem elég. Mi az egészségesen, aktívan és jobb közérzettel megélt évekre fókuszálunk.' },
++  ],
++  seo: [
++    { path:'/', title:'V40 Vital – Longevity klinika Budapesten', noindex:false,
++      description:'Orvosi állapotfelmérésre épülő longevity program, infúziós kezelések és személyre szabott egészségstratégia Budapest belvárosában.' },
++    { path:'/kezelesek', title:'Kezelések és árak | V40 Vital', noindex:false,
++      description:'Infúziós terápiák, diagnosztikai csomagok és konzultáció. Online időpontfoglalás, bankkártyás fizetés.' },
++    { path:'/berletek', title:'Bérletek | V40 Vital', noindex:false,
++      description:'Több alkalomra előre, kedvezőbb áron. Bérleteink érvényessége és felhasználási feltételei.' },
++    { path:'/gyik', title:'Gyakran ismételt kérdések | V40 Vital', noindex:false,
++      description:'Foglalás, lemondás, fizetés, egészségpénztári elszámolás – a leggyakoribb kérdések.' },
++  ],
++  // Demó: mennyi korábbi foglalás hivatkozik az adott bejegyzésre
++  usage:{ service:{1:14,2:6,3:9,4:3,5:22}, practitioner:{1:31,2:12,3:0},
++          room:{1:20,2:14,3:25,4:0}, pass:{1:2,2:5,3:0}, category:{1:0,2:0,3:0,4:0} },
++};
++
++const DAYS = ['Hétfő','Kedd','Szerda','Csütörtök','Péntek','Szombat','Vasárnap'];
++const slugify = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim()
++  .replace(/\s+/g,'-').replace(/[^\w-]+/g,'').replace(/--+/g,'-');
++const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
++const live = a => a.filter(x => !x.archivedAt);
++const usedBy = (k,id) => (db.usage[k]||{})[id] || 0;
++
++// ===========================================================================
++//  Állapot
++// ===========================================================================
++let view='kezelesek', editing=null, confirming=null, toast=null, q='', activePract=1, contentPage='home';
++
++const NAV = [
++  ['Katalógus', [['kezelesek','Kezelések'],['tipusok','Kezelés-típusok'],['berletek','Bérletek']]],
++  ['Kapacitás', [['szakemberek','Szakemberek'],['szobak','Szobák'],['beosztas','Nyitvatartás']]],
++  ['Weboldal',  [['szovegek','Szövegek'],['seo','SEO']]],
++  ['Rendszer',  [['szabalyok','Foglalási szabályok'],['marketing','Marketing']]],
++];
++
++const COLL = {
++  kezelesek:   { arr:()=>db.services,      kind:'service',      title:'Kezelések',       one:'kezelés' },
++  tipusok:     { arr:()=>db.categories,    kind:'category',     title:'Kezelés-típusok', one:'típus' },
++  szakemberek: { arr:()=>db.practitioners, kind:'practitioner', title:'Szakemberek',     one:'szakember' },
++  szobak:      { arr:()=>db.rooms,         kind:'room',         title:'Szobák',          one:'szoba' },
++  berletek:    { arr:()=>db.passes,        kind:'pass',         title:'Bérletek',        one:'bérlet' },
++};
++
++const VAT = () => [[0,'Áfamentes (egészségügyi)'],[27,'27% (esztétikai)']];
++
++const FIELDS = {
++  kezelesek: [
++    { k:'title', l:'Megnevezés', t:'text', req:1, w:2 },
++    { k:'slug', l:'URL-slug', t:'text', req:1, w:2,
++      h:'Ez szerepel az URL-ben. Ha megváltoztatod, a régi cím 301-es átirányítást kap, így a SEO nem sérül.' },
++    { k:'desc', l:'Leírás', t:'area', rows:3, w:2 },
++    { k:'categoryId', l:'Kezelés-típus', t:'sel', opts:()=>[['','– nincs –'],...live(db.categories).map(c=>[c.id,c.name])] },
++    { k:'priceGross', l:'Bruttó ár (Ft)', t:'num', step:1000 },
++    { k:'vatRate', l:'Áfa', t:'sel', opts:VAT,
++      h:'A magán egészségügyi szolgáltatás áfamentes (Áfa tv. 85. §), az esztétikai jellegű nem.' },
++    { k:'durationMin', l:'Hossz (perc)', t:'num', step:5, req:1 },
++    { k:'bufferBeforeMin', l:'Puffer előtte (perc)', t:'num', step:5 },
++    { k:'bufferAfterMin', l:'Puffer utána (perc)', t:'num', step:5 },
++    { k:'minLeadTimeHours', l:'Legkorábbi foglalás (óra)', t:'num' },
++    { k:'maxLeadTimeDays', l:'Naptár nyitva (nap)', t:'num' },
++    { k:'roomIds', l:'Mely szobákban végezhető', t:'multi', w:2, opts:()=>live(db.rooms).map(r=>[r.id,r.name]),
++      h:'Ez adja a párhuzamos kapacitást. Szoba nélkül a rendszer csak a szakember idejét figyeli – infúziónál ez hiba.' },
++    { k:'isBookableOnline', l:'Online foglalható', t:'bool', w:2 },
++  ],
++  tipusok: [
++    { k:'name', l:'Megnevezés', t:'text', req:1 },
++    { k:'slug', l:'URL-slug', t:'text', req:1 },
++    { k:'shortDesc', l:'Rövid leírás (a kártyán)', t:'area', rows:3, w:2 },
++    { k:'longDesc', l:'Részletes leírás (felugró ablak)', t:'paras', w:2,
++      h:'Ezt látja a látogató, ha a nyitóoldalon a kártyára kattint. Minden bekezdés külön mező.' },
++    { k:'isActive', l:'Megjelenik a weboldalon', t:'bool', w:2 },
++  ],
++  szakemberek: [
++    { k:'name', l:'Név', t:'text', req:1 },
++    { k:'slug', l:'URL-slug', t:'text', req:1 },
++    { k:'titles', l:'Titulus', t:'text' },
++    { k:'category', l:'Szakterület', t:'text' },
++    { k:'desc', l:'Bemutatkozás', t:'area', rows:3, w:2 },
++    { k:'serviceIds', l:'Mely kezeléseket végzi', t:'multi', w:2, req:1, opts:()=>live(db.services).map(s=>[s.id,s.title]) },
++  ],
++  szobak: [
++    { k:'name', l:'Megnevezés', t:'text', req:1, w:2 },
++    { k:'isActive', l:'Használatban', t:'bool', w:2 },
++  ],
++  berletek: [
++    { k:'title', l:'Megnevezés', t:'text', req:1, w:2 },
++    { k:'slug', l:'URL-slug', t:'text', req:1, w:2 },
++    { k:'desc', l:'Leírás', t:'area', rows:2, w:2 },
++    { k:'priceGross', l:'Bruttó ár (Ft)', t:'num', step:10000 },
++    { k:'vatRate', l:'Áfa', t:'sel', opts:VAT },
++    { k:'sessionCount', l:'Alkalmak száma', t:'num' },
++    { k:'validityDays', l:'Érvényesség (nap)', t:'num',
++      h:'A vásárlástól számítva. Ennek az ÁSZF-ben is szerepelnie kell.' },
++    { k:'serviceIds', l:'Mely kezelésekre használható', t:'multi', w:2, req:1,
++      opts:()=>live(db.services).map(s=>[s.id,s.title]) },
++    { k:'transferable', l:'Átruházható más személyre', t:'bool', w:2 },
++  ],
++};
++
++const BLANK = {
++  kezelesek:()=>({title:'',slug:'',desc:'',categoryId:'',priceGross:0,vatRate:0,durationMin:60,
++    bufferBeforeMin:0,bufferAfterMin:10,minLeadTimeHours:24,maxLeadTimeDays:90,roomIds:[],
++    isBookableOnline:true,archivedAt:null}),
++  tipusok:()=>({name:'',slug:'',shortDesc:'',longDesc:[''],isActive:true,archivedAt:null}),
++  szakemberek:()=>({name:'',slug:'',titles:'Dr.',category:'',desc:'',serviceIds:[],archivedAt:null,
++    hours:{1:[],2:[],3:[],4:[],5:[],6:[],7:[]}}),
++  szobak:()=>({name:'',isActive:true,archivedAt:null}),
++  berletek:()=>({title:'',slug:'',desc:'',priceGross:0,vatRate:0,sessionCount:5,validityDays:180,
++    serviceIds:[],transferable:false,archivedAt:null}),
++};
++
++// ===========================================================================
++//  Generikus űrlap
++// ===========================================================================
++function field(f, d) {
++  const v = d[f.k];
++  const box = inner => `<div class="f" style="${f.w===2?'grid-column:1/-1':''}">
++    <label>${f.l}${f.req?' *':''}</label>${inner}${f.h?`<small>${f.h}</small>`:''}</div>`;
++
++  switch (f.t) {
++    case 'text': return box(`<input data-fk="${f.k}" value="${esc(v)}">`);
++    case 'num':  return box(`<input type="number" data-fk="${f.k}" value="${v ?? 0}" step="${f.step||1}">`);
++    case 'area': return box(`<textarea rows="${f.rows||3}" data-fk="${f.k}">${esc(v)}</textarea>`);
++    case 'sel':  return box(`<select data-fk="${f.k}">${f.opts().map(([o,l])=>
++                   `<option value="${o}" ${String(o)===String(v??'')?'selected':''}>${l}</option>`).join('')}</select>`);
++    case 'bool': return `<div class="f" style="grid-column:1/-1">
++                   <label class="sw"><input type="checkbox" data-fk="${f.k}" ${v?'checked':''}> ${f.l}</label>
++                   ${f.h?`<small>${f.h}</small>`:''}</div>`;
++    case 'multi':return box(`<div class="chips">${f.opts().map(([o,l])=>
++                   `<label class="chipbox ${(v||[]).includes(o)?'on':''}">
++                     <input type="checkbox" data-multi="${f.k}" value="${o}" ${(v||[]).includes(o)?'checked':''}>${l}</label>`).join('')}</div>`);
++    case 'paras':return box(`<div>${(v||[]).map((p,i)=>`<div class="para">
++                     <textarea rows="3" data-para="${i}">${esc(p)}</textarea>
++                     <button class="icon" data-paradel="${i}" title="Törlés">✕</button></div>`).join('')}
++                   <button class="dash" data-paraadd="1">+ Bekezdés</button></div>`);
++  }
++  return '';
++}
++
++function editor() {
++  if (!editing) return '';
++  const { kind, id, draft } = editing, C = COLL[kind], isNew = id === null;
++  const missing = FIELDS[kind].filter(f => f.req &&
++    (draft[f.k] === '' || draft[f.k] == null || (Array.isArray(draft[f.k]) && !draft[f.k].length)));
++
++  let extra = '';
++  if (kind === 'kezelesek') {
++    const tot = (+draft.bufferBeforeMin||0) + (+draft.durationMin||0) + (+draft.bufferAfterMin||0);
++    extra = `<div class="note info">Egy foglalás <b>${tot} percet</b> foglal a naptárban,
++      ebből ${draft.durationMin||0} perc a kezelés.</div>`;
++  }
++  if (kind === 'berletek' && draft.serviceIds?.length) {
++    const top = Math.max(...draft.serviceIds.map(i => db.services.find(s=>s.id===i)?.priceGross || 0));
++    const full = top * (+draft.sessionCount || 0), save = full - (+draft.priceGross||0);
++    extra = `<div class="note ${save>0?'ok':'warn'}">Listaáron ${Ft(full)} lenne.
++      ${save>0 ? `A bérlet <b>${Ft(save)}</b> megtakarítás.`
++               : 'A bérlet ára nem kedvezőbb a listaárnál – ezt érdemes ellenőrizni.'}</div>`;
++  }
++
++  return `<div class="back" data-back><div class="modal">
++    <button class="x" data-close>✕</button>
++    <h2 class="dm">${isNew ? `Új ${C.one}` : `${C.one[0].toUpperCase()+C.one.slice(1)} szerkesztése`}</h2>
++    <p style="color:var(--muted);margin:0 0 20px">A mentés azonnal él a weboldalon.</p>
++    <div class="grid2">${FIELDS[kind].map(f=>field(f,draft)).join('')}</div>
++    ${extra}
++    ${missing.length ? `<div class="note warn">Kötelező még: ${missing.map(f=>f.l).join(', ')}</div>` : ''}
++    <div class="acts">
++      <button class="btn" data-save ${missing.length?'disabled':''}>Mentés</button>
++      <button class="btn out" data-close>Mégsem</button>
++    </div></div></div>`;
++}
++
++function confirmBox() {
++  if (!confirming) return '';
++  const { kind, id } = confirming, C = COLL[kind];
++  const row = C.arr().find(x=>x.id===id), n = usedBy(C.kind, id);
++  return `<div class="back" data-back><div class="modal" style="max-width:520px">
++    <button class="x" data-close>✕</button>
++    <h2 class="dm">${esc(row.title || row.name)}</h2>
++    <p style="color:var(--muted);margin:4px 0 16px">Eltávolítás a weboldalról</p>
++    ${n > 0
++      ? `<div class="note warn">Ehhez a bejegyzéshez <b>${n} korábbi foglalás</b> tartozik, ezért véglegesen
++          nem törölhető: a foglalások és a kiállított számlák hivatkoznak rá, és elszakadna a nyomvonal.<br><br>
++          Helyette <b>archiválva</b> lesz. Az ügyfél számára ugyanaz történik: azonnal eltűnik a weboldalról
++          és a foglalható listákból. Csak az előzmény marad meg mögötte, és bármikor visszakapcsolható.</div>`
++      : `<div class="note ok">Ehhez a bejegyzéshez nem tartozik foglalás, tehát véglegesen törölhető.</div>`}
++    <div class="acts">
++      <button class="btn danger" data-doarch>${n>0 ? 'Archiválás' : 'Véglegesen törlöm'}</button>
++      <button class="btn out" data-close>Mégsem</button>
++    </div></div></div>`;
++}
++
++// ===========================================================================
++//  Listák
++// ===========================================================================
++const acts = (k,r) => `<td class="right">
++  <button class="btn out sm" data-edit="${k}:${r.id}">Szerkesztés</button>
++  ${r.archivedAt ? `<button class="btn out sm" data-restore="${k}:${r.id}">Visszakapcsolás</button>`
++                 : `<button class="btn danger sm" data-del="${k}:${r.id}">Törlés</button>`}</td>`;
++
++function topBar(k) {
++  const C = COLL[k], arch = C.arr().filter(x=>x.archivedAt).length;
++  return `<div class="head"><h1 class="dm">${C.title}</h1>
++    <div class="sp">
++      <input class="search" id="q" placeholder="Keresés…" value="${esc(q)}">
++      <button class="btn" data-new="${k}">+ Új ${C.one}</button>
++    </div></div>
++    ${arch ? `<p class="sub">${arch} archivált bejegyzés a lista alján, halványítva.</p>` : ''}`;
++}
++
++function rows(k) {
++  const t = q.trim().toLowerCase();
++  return COLL[k].arr()
++    .filter(r => !t || (r.title||r.name||'').toLowerCase().includes(t) || (r.slug||'').toLowerCase().includes(t))
++    .sort((a,b) => (a.archivedAt?1:0) - (b.archivedAt?1:0));
++}
++const vat = v => v===0 ? '<span class="pill tam">TAM</span>' : '<span class="pill off">27%</span>';
++const yn  = v => v ? '<span class="pill on">igen</span>' : '<span class="pill off">nem</span>';
++
++const vKezelesek = () => `${topBar('kezelesek')}
++  <div class="card"><table>
++    <tr><th>Kezelés</th><th>Típus</th><th class="right">Ár</th><th>Áfa</th><th class="right">Idő</th>
++      <th>Szoba</th><th>Online</th><th></th></tr>
++    ${rows('kezelesek').map(s=>`<tr class="${s.archivedAt?'arch':''}">
++      <td class="name">${esc(s.title)}<small class="mono">/${s.slug}</small></td>
++      <td>${db.categories.find(c=>c.id===+s.categoryId)?.name || '—'}</td>
++      <td class="right num">${Ft(s.priceGross)}</td><td>${vat(s.vatRate)}</td>
++      <td class="right num">${s.durationMin}′ <small style="color:var(--muted)">+${s.bufferBeforeMin+s.bufferAfterMin}′</small></td>
++      <td>${s.roomIds.length ? s.roomIds.map(i=>db.rooms.find(r=>r.id===i)?.name).join(', ')
++        : '<span class="pill off">nincs</span>'}</td>
++      <td>${yn(s.isBookableOnline)}</td>${acts('kezelesek',s)}</tr>`).join('')}
++  </table></div>
++  ${live(db.services).some(s=>!s.roomIds.length) ? `<div class="note warn">
++    Van olyan kezelés, amelyhez nincs szoba hozzárendelve. Ilyenkor a rendszer csak a szakember idejét figyeli,
++    tehát két ügyfél ugyanabba az időbe kerülhet. Infúziós kezelésnél ez hiba.</div>` : ''}`;
++
++const vTipusok = () => `${topBar('tipusok')}
++  <p class="sub">Ezek jelennek meg a nyitóoldal „Kezelés típusok” szekciójában. A részletes leírás
++  felugró ablakban nyílik meg, ha a látogató a kártyára kattint.</p>
++  <div class="card"><table>
++    <tr><th>Típus</th><th>Rövid leírás</th><th class="right">Bekezdés</th><th class="right">Kezelés</th><th>Látható</th><th></th></tr>
++    ${rows('tipusok').map(c=>`<tr class="${c.archivedAt?'arch':''}">
++      <td class="name">${esc(c.name)}<small class="mono">/${c.slug}</small></td>
++      <td style="max-width:340px;color:var(--muted)">${esc((c.shortDesc||'').slice(0,110))}${(c.shortDesc||'').length>110?'…':''}</td>
++      <td class="right num">${(c.longDesc||[]).length} db</td>
++      <td class="right num">${db.services.filter(s=>+s.categoryId===c.id).length}</td>
++      <td>${yn(c.isActive)}</td>${acts('tipusok',c)}</tr>`).join('')}
++  </table></div>`;
++
++const vBerletek = () => `${topBar('berletek')}
++  <div class="card"><table>
++    <tr><th>Bérlet</th><th class="right">Ár</th><th>Áfa</th><th class="right">Alkalom</th>
++      <th class="right">Érvényes</th><th>Mely kezelésekre</th><th class="right">Eladott</th><th></th></tr>
++    ${rows('berletek').map(p=>`<tr class="${p.archivedAt?'arch':''}">
++      <td class="name">${esc(p.title)}<small class="mono">/${p.slug}</small></td>
++      <td class="right num">${Ft(p.priceGross)}</td><td>${vat(p.vatRate)}</td>
++      <td class="right num">${p.sessionCount}</td><td class="right num">${p.validityDays} nap</td>
++      <td>${p.serviceIds.map(i=>db.services.find(s=>s.id===i)?.title).join(', ') || '<span class="pill off">nincs</span>'}</td>
++      <td class="right num">${usedBy('pass',p.id)}</td>${acts('berletek',p)}</tr>`).join('')}
++  </table></div>
++  <div class="note info">A bérlet érvényessége és a fel nem használt alkalmak kezelése fogyasztóvédelmi
++  kérdés – ezeknek az ÁSZF-ben is szerepelnie kell. A jelenlegi ÁSZF ezt még nem tartalmazza.</div>`;
++
++const vSzakemberek = () => `${topBar('szakemberek')}
++  <div class="card"><table>
++    <tr><th>Név</th><th>Szakterület</th><th class="right">Heti óra</th><th class="right">Kezelés</th>
++      <th class="right">Foglalás</th><th></th></tr>
++    ${rows('szakemberek').map(p=>`<tr class="${p.archivedAt?'arch':''}">
++      <td class="name">${esc(p.name)}<small class="mono">/${p.slug}</small></td>
++      <td>${esc(p.category)||'—'}</td>
++      <td class="right num">${Object.values(p.hours).flat().reduce((a,[s,e])=>a+(e-s),0)/60} ó</td>
++      <td class="right num">${p.serviceIds.length}</td>
++      <td class="right num">${usedBy('practitioner',p.id)}</td>${acts('szakemberek',p)}</tr>`).join('')}
++  </table></div>
++  ${schedule()}`;
++
++const vSzobak = () => `${topBar('szobak')}
++  <p class="sub">A szoba adja a párhuzamos kapacitást: ha minden alkalmas szoba foglalt, nincs több szabad
++  idősáv – akkor sem, ha a szakember épp szabad.</p>
++  <div class="card"><table>
++    <tr><th>Szoba</th><th>Mely kezelésekhez</th><th class="right">Foglalás</th><th>Használatban</th><th></th></tr>
++    ${rows('szobak').map(r=>`<tr class="${r.archivedAt?'arch':''}">
++      <td class="name">${esc(r.name)}</td>
++      <td>${db.services.filter(s=>s.roomIds.includes(r.id)).map(s=>s.title).join(', ') || '—'}</td>
++      <td class="right num">${usedBy('room',r.id)}</td>
++      <td>${yn(r.isActive)}</td>${acts('szobak',r)}</tr>`).join('')}
++  </table></div>`;
++
++// ---- beosztás -------------------------------------------------------------
++const week = (map, tag) => DAYS.map((name,i) => {
++  const iso = i+1, bl = map[iso] || [];
++  return `<div class="dayrow">
++    <div class="dname">${name}<small>${bl.length ? bl.reduce((a,[s,e])=>a+(e-s),0)/60+' óra' : 'zárva'}</small></div>
++    <div>${bl.map(([s,e],bi)=>`<div class="blk">
++      <input type="time" value="${HM(s)}" data-${tag}="${iso}:${bi}:s">
++      <span style="color:var(--muted)">–</span>
++      <input type="time" value="${HM(e)}" data-${tag}="${iso}:${bi}:e">
++      <button class="icon" data-${tag}d="${iso}:${bi}">✕</button>
++      ${e<=s ? '<span style="color:var(--warn);font-size:12px">a záró idő nem lehet korábbi</span>' : ''}
++      </div>`).join('') || '<div style="color:var(--muted);padding-top:6px">Zárva</div>'}
++      <button class="dash" data-${tag}a="${iso}">+ Idősáv</button></div></div>`;
++}).join('');
++
++function schedule() {
++  const p = live(db.practitioners).find(x=>x.id===activePract) || live(db.practitioners)[0];
++  if (!p) return '';
++  return `<div class="card">
++    <h2 class="dm">Rendelési idő</h2>
++    <p class="hint">A foglalhatóság a rendelő nyitvatartása ÉS a szakember beosztása metszete.
++      A délelőtti és délutáni sáv külön vehető fel – ami közte van, az ebédszünet.</p>
++    <div class="f" style="max-width:280px"><label>Szakember</label>
++      <select id="pp">${live(db.practitioners).map(x=>
++        `<option value="${x.id}" ${x.id===p.id?'selected':''}>${x.name}</option>`).join('')}</select></div>
++    ${week(p.hours,'ph')}</div>`;
++}
++
++const vBeosztas = () => `
++  <div class="head"><h1 class="dm">A rendelő nyitvatartása</h1></div>
++  <p class="sub">Ez a külső korlát. Ha itt zárva van, a szakember beosztása hiába nyitott – foglalni nem lehet.
++  Így az ünnepnapi zárást egy helyen kell felvenni, nem minden orvosnál külön.</p>
++  <div class="card">${week(db.clinicHours,'ch')}</div>
++  ${schedule()}
++  ${(()=>{ const bad = live(db.practitioners).filter(p =>
++      Object.entries(p.hours).some(([iso,bl]) => bl.length && !(db.clinicHours[iso]||[]).length));
++    return bad.length ? `<div class="note warn">${bad.map(p=>p.name).join(', ')} olyan napon is rendel,
++      amikor a rendelő zárva van. Ezek az idősávok nem fognak megjelenni.</div>` : ''; })()}`;
++
++// ---- szövegek -------------------------------------------------------------
++function vSzovegek() {
++  const pages = [...new Set(db.content.map(c=>c.page))];
++  const list = db.content.filter(c=>c.page===contentPage);
++  const groups = [...new Set(list.map(c=>c.group))];
++  const label = p => p==='home' ? 'Nyitóoldal' : p==='global' ? 'Minden oldalon' : p;
++  return `<div class="head"><h1 class="dm">Weboldal szövegei</h1></div>
++  <p class="sub">A weboldalon megjelenő minden szöveg innen jön. Ha egy mezőt üresen hagysz, a beépített
++  alapérték jelenik meg – üres oldal nem tud keletkezni.</p>
++  <div class="chips" style="margin-bottom:18px">${pages.map(p=>
++    `<button class="chipbox ${p===contentPage?'on':''}" data-cp="${p}">${label(p)}</button>`).join('')}</div>
++  ${groups.map(g=>`<div class="card"><h2 class="dm">${g}</h2>
++    <p class="hint">${list.filter(c=>c.group===g).length} szövegblokk</p>
++    ${list.filter(c=>c.group===g).map(c=>`<div class="f">
++      <label>${c.label} <span class="mono" style="color:var(--muted);font-weight:400">${c.key}</span></label>
++      ${c.type==='RICHTEXT' ? `<textarea rows="3" data-ck="${c.key}">${esc(c.value)}</textarea>`
++                            : `<input data-ck="${c.key}" value="${esc(c.value)}">`}</div>`).join('')}
++  </div>`).join('')}
++  <button class="btn" data-csave>Szövegek mentése</button>`;
++}
++
++// ---- SEO ------------------------------------------------------------------
++const vSeo = () => `<div class="head"><h1 class="dm">SEO</h1></div>
++  <p class="sub">Oldalankénti cím és leírás. A kezeléseknek és bérleteknek saját meta mezőik lesznek
++  a szerkesztőjükben, mert a slug is náluk van.</p>
++  ${db.seo.map((s,i)=>`<div class="card">
++    <h2 class="dm mono">${s.path}</h2><p class="hint">Google-találat előnézet</p>
++    <div class="serp">
++      <div style="color:#1a0dab;font-size:18px;line-height:1.3">${esc(s.title) || '(nincs cím)'}</div>
++      <div style="color:#006621;font-size:12.5px">v40vital.hu${s.path}</div>
++      <div style="color:#4d5156;font-size:13px">${esc(s.description) || '(nincs leírás)'}</div>
++    </div>
++    <div class="f"><label>Cím
++      <small style="display:inline;color:${s.title.length>60?'var(--warn)':'var(--muted)'}">${s.title.length}/60</small></label>
++      <input data-seo="${i}:title" value="${esc(s.title)}"></div>
++    <div class="f"><label>Leírás
++      <small style="display:inline;color:${s.description.length>160?'var(--warn)':'var(--muted)'}">${s.description.length}/160</small></label>
++      <textarea rows="2" data-seo="${i}:description">${esc(s.description)}</textarea></div>
++    <label class="sw"><input type="checkbox" data-seob="${i}" ${s.noindex?'checked':''}>
++      Kizárás a keresőkből (noindex)</label>
++  </div>`).join('')}
++  <button class="btn" data-seosave>SEO mentése</button>`;
++
++// ---- szabályok / marketing ------------------------------------------------
++const vSzabalyok = () => { const s = db.settings; return `
++  <div class="head"><h1 class="dm">Foglalási szabályok</h1></div>
++  <p class="sub">Ezek minden kezelésre érvényesek, kivéve ahol a kezelés saját értéket ad meg.</p>
++  <div class="card"><div class="grid2">
++    <div class="f"><label>Idősáv-raszter (perc)</label>
++      <input type="number" step="5" data-setn="slotGranularityMin" value="${s.slotGranularityMin}">
++      <small>Ekkora lépésekben kínálunk kezdési időpontot (09:00, 09:15…).</small></div>
++    <div class="f"><label>Zárolás fizetés közben (perc)</label>
++      <input type="number" data-setn="holdMinutes" value="${s.holdMinutes}">
++      <small>Ennyi ideig tartjuk az idősávot. Ha nem fizet, magától felszabadul.</small></div>
++    <div class="f"><label>Ingyenes lemondás (órával előtte)</label>
++      <input type="number" data-setn="freeCancellationHours" value="${s.freeCancellationHours}">
++      <small>Bérletnél az ezen belüli lemondás elviszi az alkalmat.</small></div>
++    <div class="f"><label>Emlékeztető (órával előtte)</label>
++      <input type="number" data-setn="reminderHoursBefore" value="${s.reminderHoursBefore}"></div>
++  </div>
++  <div style="display:flex;flex-direction:column;gap:9px">
++    <label class="sw"><input type="checkbox" data-setb="requireBuffersInsideHours" ${s.requireBuffersInsideHours?'checked':''}>
++      A puffer se nyúlhat túl a záráson</label>
++    <label class="sw"><input type="checkbox" data-setb="allowOnlineCancellation" ${s.allowOnlineCancellation?'checked':''}>
++      Az ügyfél lemondhat online</label>
++    <label class="sw"><input type="checkbox" data-setb="allowOnlineReschedule" ${s.allowOnlineReschedule?'checked':''}>
++      Az ügyfél átteheti az időpontot online</label>
++  </div></div>
++  <button class="btn" data-ssave>Mentés</button>`; };
++
++const vMarketing = () => { const s = db.settings; return `
++  <div class="head"><h1 class="dm">Marketing és analitika</h1></div>
++  <p class="sub">Mérőkódok azonosítói. Ezek csak a látogató hozzájárulása után töltődnek be.</p>
++  <div class="card"><div class="grid3">
++    <div class="f"><label>GA4 mérési azonosító</label>
++      <input data-sett="ga4MeasurementId" value="${esc(s.ga4MeasurementId)}" placeholder="G-XXXXXXX"></div>
++    <div class="f"><label>Google Tag Manager</label>
++      <input data-sett="gtmContainerId" value="${esc(s.gtmContainerId)}" placeholder="GTM-XXXXXX"></div>
++    <div class="f"><label>Meta Pixel</label>
++      <input data-sett="metaPixelId" value="${esc(s.metaPixelId)}" placeholder="123456789"></div>
++  </div>
++  <label class="sw"><input type="checkbox" data-setb="cookieBannerEnabled" ${s.cookieBannerEnabled?'checked':''}>
++    Sütibanner megjelenítése</label>
++  <div class="note warn">Egészségügyi oldalon a remarketing külön figyelmet igényel. Ha egy pixel azt jelzi,
++    hogy a látogató az „Anyajegy vizsgálat” oldalt nézte, az a GDPR 9. cikke szerinti egészségügyi adatra
++    vonatkozó következtetés. Ezért a mérés <b>nem</b> tartalmazhat kezelés-szintű azonosítót, és a sütibanner
++    kikapcsolása nem javasolt.</div></div>
++  <button class="btn" data-ssave>Mentés</button>`; };
++
++const VIEWS = { kezelesek:vKezelesek, tipusok:vTipusok, berletek:vBerletek, szakemberek:vSzakemberek,
++  szobak:vSzobak, beosztas:vBeosztas, szovegek:vSzovegek, seo:vSeo, szabalyok:vSzabalyok, marketing:vMarketing };
++
++// ===========================================================================
++//  Render + kötések
++// ===========================================================================
++function render() {
++  document.getElementById('nav').innerHTML = NAV.map(([g,items]) =>
++    `<div class="grp">${g}</div>` + items.map(([k,l]) =>
++      `<a href="#" data-v="${k}" class="${k===view?'on':''}">${l}</a>`).join('')).join('');
++  document.getElementById('main').innerHTML = (VIEWS[view] || vKezelesek)();
++  document.getElementById('overlay').innerHTML = editor() + confirmBox() +
++    (toast ? `<div class="toast">${toast}</div>` : '');
++  bind();
++}
++
++function flash(m) { toast = m; render(); setTimeout(()=>{ toast = null; render(); }, 2600); }
++
++/** Újrarender után visszaadja a fókuszt és a kurzort – enélkül minden leütés elveszne. */
++function keepCaret(sel, pos) {
++  render();
++  const el = document.querySelector(sel);
++  if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} }
++}
++
++function bind() {
++  const on = (s,e,f) => document.querySelectorAll(s).forEach(el => el.addEventListener(e,f));
++  const D = () => editing.draft;
++
++  on('[data-v]','click', e => { e.preventDefault(); view = e.currentTarget.dataset.v; q = ''; render(); });
++  on('#q','input', e => { const pos = e.target.selectionStart; q = e.target.value; keepCaret('#q', pos); });
++
++  on('[data-new]','click', e => {
++    const k = e.currentTarget.dataset.new;
++    editing = { kind:k, id:null, draft:BLANK[k]() }; render();
++  });
++  on('[data-edit]','click', e => {
++    const [k,id] = e.currentTarget.dataset.edit.split(':');
++    editing = { kind:k, id:+id, draft:JSON.parse(JSON.stringify(COLL[k].arr().find(x=>x.id===+id))) };
++    render();
++  });
++  on('[data-del]','click', e => {
++    const [k,id] = e.currentTarget.dataset.del.split(':');
++    confirming = { kind:k, id:+id }; render();
++  });
++  on('[data-restore]','click', e => {
++    const [k,id] = e.currentTarget.dataset.restore.split(':');
++    COLL[k].arr().find(x=>x.id===+id).archivedAt = null;
++    flash('Visszakapcsolva – újra megjelenik a weboldalon.');
++  });
++  on('[data-doarch]','click', () => {
++    const { kind, id } = confirming, arr = COLL[kind].arr();
++    const row = arr.find(x=>x.id===id);
++    if (usedBy(COLL[kind].kind, id) > 0) {
++      row.archivedAt = new Date().toISOString();
++      confirming = null; flash('Archiválva – eltűnt a weboldalról, az előzmény megmaradt.');
++    } else {
++      arr.splice(arr.indexOf(row), 1);
++      confirming = null; flash('Véglegesen törölve.');
++    }
++  });
++  on('[data-close]','click', () => { editing = null; confirming = null; render(); });
++  on('[data-back]','click', e => {
++    if (e.target === e.currentTarget) { editing = null; confirming = null; render(); }
++  });
++
++  // --- űrlapmezők ---
++  on('[data-fk]','input', e => {
++    const k = e.target.dataset.fk;
++    const num = e.target.type === 'number' || k === 'vatRate';
++    D()[k] = e.target.type === 'checkbox' ? e.target.checked : num ? +e.target.value : e.target.value;
++    if ((k === 'title' || k === 'name') && editing.id === null) D().slug = slugify(D()[k]);
++    keepCaret(`[data-fk="${k}"]`, e.target.selectionStart ?? 0);
++  });
++  on('[data-multi]','change', e => {
++    const k = e.target.dataset.multi, v = +e.target.value, cur = D()[k] || [];
++    D()[k] = e.target.checked ? [...cur, v] : cur.filter(x => x !== v);
++    render();
++  });
++  on('[data-para]','input', e => { D().longDesc[+e.target.dataset.para] = e.target.value; });
++  on('[data-paradel]','click', e => { D().longDesc.splice(+e.currentTarget.dataset.paradel,1); render(); });
++  on('[data-paraadd]','click', () => { D().longDesc.push(''); render(); });
++
++  on('[data-save]','click', () => {
++    const { kind, id, draft } = editing, arr = COLL[kind].arr();
++    if (id === null) { draft.id = ++uid; arr.push(draft); flash(`Létrehozva: ${draft.title || draft.name}`); }
++    else { Object.assign(arr.find(x=>x.id===id), draft); flash('Mentve.'); }
++    editing = null;
++  });
++
++  // --- beosztás ---
++  const wire = (tag, map) => {
++    on(`[data-${tag}]`,'change', e => {
++      const [iso,bi,edge] = e.target.dataset[tag].split(':');
++      map()[+iso][+bi][edge === 's' ? 0 : 1] = MIN(e.target.value); render();
++    });
++    on(`[data-${tag}d]`,'click', e => {
++      const [iso,bi] = e.currentTarget.dataset[tag+'d'].split(':').map(Number);
++      map()[iso].splice(bi,1); render();
++    });
++    on(`[data-${tag}a]`,'click', e => {
++      const iso = +e.currentTarget.dataset[tag+'a'];
++      (map()[iso] = map()[iso] || []).push([540,1020]); render();
++    });
++  };
++  wire('ch', () => db.clinicHours);
++  wire('ph', () => (db.practitioners.find(x=>x.id===activePract) || db.practitioners[0]).hours);
++  const pp = document.getElementById('pp');
++  if (pp) pp.onchange = () => { activePract = +pp.value; render(); };
++
++  // --- szövegek / SEO / beállítások ---
++  on('[data-cp]','click', e => { contentPage = e.currentTarget.dataset.cp; render(); });
++  on('[data-ck]','input', e => { db.content.find(c=>c.key===e.target.dataset.ck).value = e.target.value; });
++  on('[data-csave]','click', () => flash('Szövegek mentve – a weboldalon azonnal élnek.'));
++
++  on('[data-seo]','input', e => {
++    const [i,f] = e.target.dataset.seo.split(':');
++    db.seo[+i][f] = e.target.value;
++    keepCaret(`[data-seo="${i}:${f}"]`, e.target.selectionStart ?? 0);
++  });
++  on('[data-seob]','change', e => { db.seo[+e.target.dataset.seob].noindex = e.target.checked; render(); });
++  on('[data-seosave]','click', () => flash('SEO mentve.'));
++
++  on('[data-setn]','input',  e => { db.settings[e.target.dataset.setn] = +e.target.value; });
++  on('[data-sett]','input',  e => { db.settings[e.target.dataset.sett] = e.target.value; });
++  on('[data-setb]','change', e => { db.settings[e.target.dataset.setb] = e.target.checked; render(); });
++  on('[data-ssave]','click', () => flash('Beállítások mentve.'));
++}
++
++document.addEventListener('keydown', e => {
++  if (e.key === 'Escape' && (editing || confirming)) { editing = null; confirming = null; render(); }
++});
++render();
++</script>
+diff --git a/package-lock.json b/package-lock.json
+index a1f4d72..45e66f5 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -19,9 +19,11 @@
+         "nuxt": "^4.3.1",
+         "nuxt-auth-utils": "^0.5.29",
+         "sharp": "^0.34.5",
++        "typescript": "^5.9.3",
+         "vue": "^3.5.28",
+         "vue-material-design-icons": "^5.3.1",
+-        "vue-router": "^4.6.4"
++        "vue-router": "^4.6.4",
++        "zod": "^3.23.8"
+       },
+       "devDependencies": {
+         "dotenv": "^17.3.1",
+@@ -12489,6 +12491,19 @@
+       "integrity": "sha512-wTk4DH3cxwk196uGLK/E9pE45aLfeKJacKmcEgEOA/q5dnPGNxXt0cfYdFxb57L+sEpf1oJH4Dnx/pnRcku9jg==",
+       "license": "MIT"
+     },
++    "node_modules/typescript": {
++      "version": "5.9.3",
++      "resolved": "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz",
++      "integrity": "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
++      "license": "Apache-2.0",
++      "bin": {
++        "tsc": "bin/tsc",
++        "tsserver": "bin/tsserver"
++      },
++      "engines": {
++        "node": ">=14.17"
++      }
++    },
+     "node_modules/uc.micro": {
+       "version": "2.1.0",
+       "resolved": "https://registry.npmjs.org/uc.micro/-/uc.micro-2.1.0.tgz",
+@@ -13652,6 +13667,15 @@
+       "engines": {
+         "node": ">= 14"
+       }
++    },
++    "node_modules/zod": {
++      "version": "3.25.76",
++      "resolved": "https://registry.npmjs.org/zod/-/zod-3.25.76.tgz",
++      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/colinhacks"
++      }
+     }
+   }
+ }
+diff --git a/package.json b/package.json
+index 02db242..748f3cb 100644
+--- a/package.json
++++ b/package.json
+@@ -10,7 +10,8 @@
+     "postinstall": "nuxt prepare",
+     "seed": "prisma db seed",
+     "test": "node --experimental-strip-types --test server/booking/*.test.ts",
+-    "optimize:images": "node scripts/optimize-images.mjs"
++    "optimize:images": "node scripts/optimize-images.mjs",
++    "typecheck": "nuxt typecheck"
+   },
+   "prisma": {
+     "seed": "tsx prisma/seed.ts"
+@@ -28,13 +29,17 @@
+     "nuxt": "^4.3.1",
+     "nuxt-auth-utils": "^0.5.29",
+     "sharp": "^0.34.5",
++    "typescript": "^5.9.3",
+     "vue": "^3.5.28",
+     "vue-material-design-icons": "^5.3.1",
+-    "vue-router": "^4.6.4"
++    "vue-router": "^4.6.4",
++    "zod": "^3.23.8"
+   },
+   "devDependencies": {
+     "dotenv": "^17.3.1",
+     "prisma": "^6.19.2",
+-    "tsx": "^4.21.0"
++    "tsx": "^4.21.0",
++    "vue-tsc": "^2.1.10",
++    "typescript": "^5.6.3"
+   }
+ }
+\ No newline at end of file
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 6392a22..9dac4ab 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -264,6 +264,12 @@ model Appointment {
+   // lemondott idősávot.) Az átlapolódás-vizsgálat emellett tranzakcióban fut.
+   slotLock String? @unique @db.VarChar(64)
+ 
++  /// Ugyanez a szobára: "roomId:ISO-időpont". Külön kulcs kell, mert a slotLock
++  /// csak a szakembert védi – két különböző orvos ugyanabba a szobába tehetne
++  /// foglalást azonos időpontra. A leggyakoribb versenyhelyzet épp az, hogy
++  /// ketten a felkínált idősávra kattintanak egyszerre.
++  roomSlotLock String? @unique @db.VarChar(64)
++
+   priceGross Int // a foglalás pillanatában érvényes ár (nem hivatkozás!)
+   vatRate    Int @default(0)
+ 
+diff --git a/server/api/admin/[resource]/[id]/index.delete.ts b/server/api/admin/[resource]/[id]/index.delete.ts
+new file mode 100644
+index 0000000..cebdc88
+--- /dev/null
++++ b/server/api/admin/[resource]/[id]/index.delete.ts
+@@ -0,0 +1,2 @@
++import { crudArchive } from '~~/server/utils/crud'
++export default defineEventHandler(crudArchive)
+diff --git a/server/api/admin/[resource]/[id]/index.put.ts b/server/api/admin/[resource]/[id]/index.put.ts
+new file mode 100644
+index 0000000..bdfc691
+--- /dev/null
++++ b/server/api/admin/[resource]/[id]/index.put.ts
+@@ -0,0 +1,2 @@
++import { crudUpdate } from '~~/server/utils/crud'
++export default defineEventHandler(crudUpdate)
+diff --git a/server/api/admin/[resource]/[id]/restore.post.ts b/server/api/admin/[resource]/[id]/restore.post.ts
+new file mode 100644
+index 0000000..7e48488
+--- /dev/null
++++ b/server/api/admin/[resource]/[id]/restore.post.ts
+@@ -0,0 +1,2 @@
++import { crudRestore } from '~~/server/utils/crud'
++export default defineEventHandler(crudRestore)
+diff --git a/server/api/admin/[resource]/index.get.ts b/server/api/admin/[resource]/index.get.ts
+new file mode 100644
+index 0000000..4a48393
+--- /dev/null
++++ b/server/api/admin/[resource]/index.get.ts
+@@ -0,0 +1,2 @@
++import { crudList } from '~~/server/utils/crud'
++export default defineEventHandler(crudList)
+diff --git a/server/api/admin/[resource]/index.post.ts b/server/api/admin/[resource]/index.post.ts
+new file mode 100644
+index 0000000..336a46c
+--- /dev/null
++++ b/server/api/admin/[resource]/index.post.ts
+@@ -0,0 +1,2 @@
++import { crudCreate } from '~~/server/utils/crud'
++export default defineEventHandler(crudCreate)
+diff --git a/server/api/admin/content/index.get.ts b/server/api/admin/content/index.get.ts
+new file mode 100644
+index 0000000..f61246f
+--- /dev/null
++++ b/server/api/admin/content/index.get.ts
+@@ -0,0 +1,13 @@
++import { prisma } from '~~/server/utils/prisma'
++import { requireAdmin } from '~~/server/utils/guard'
++
++export default defineEventHandler(async (event) => {
++  await requireAdmin(event)
++  const locale = String(getQuery(event).locale ?? 'hu')
++
++  const items = await prisma.contentBlock.findMany({
++    where: { locale },
++    orderBy: [{ page: 'asc' }, { group: 'asc' }, { key: 'asc' }],
++  })
++  return { items }
++})
+diff --git a/server/api/admin/content/index.put.ts b/server/api/admin/content/index.put.ts
+new file mode 100644
+index 0000000..b194100
+--- /dev/null
++++ b/server/api/admin/content/index.put.ts
+@@ -0,0 +1,47 @@
++import { z } from 'zod'
++import { prisma } from '~~/server/utils/prisma'
++import { requireAdmin } from '~~/server/utils/guard'
++import { audit } from '~~/server/utils/audit'
++
++const body = z.object({
++  locale: z.string().min(2).max(8).default('hu'),
++  // Csak az érték módosítható. A key/page/group szerkezet a kódhoz tartozik:
++  // ha az admin átírhatná, a frontend hivatkozása némán elszakadna.
++  values: z.array(z.object({ key: z.string().min(1), value: z.string().max(20_000) })).min(1),
++})
++
++export default defineEventHandler(async (event) => {
++  const admin = await requireAdmin(event)
++  const parsed = body.safeParse(await readBody(event))
++  if (!parsed.success) {
++    throw createError({ statusCode: 422, statusMessage: 'Érvénytelen adat.' })
++  }
++  const { locale, values } = parsed.data
++
++  const known = await prisma.contentBlock.findMany({
++    where: { locale, key: { in: values.map((v) => v.key) } },
++    select: { key: true },
++  })
++  const knownKeys = new Set(known.map((k) => k.key))
++  const unknown = values.filter((v) => !knownKeys.has(v.key)).map((v) => v.key)
++  if (unknown.length) {
++    throw createError({
++      statusCode: 422,
++      statusMessage: `Ismeretlen szövegkulcs: ${unknown.join(', ')}`,
++    })
++  }
++
++  await prisma.$transaction(
++    values.map((v) =>
++      prisma.contentBlock.update({
++        where: { key_locale: { key: v.key, locale } },
++        data: { value: v.value, updatedBy: admin.id },
++      }),
++    ),
++  )
++
++  await audit(event, admin.id, 'content.update', 'ContentBlock', null, {
++    keys: values.map((v) => v.key),
++  })
++  return { ok: true, updated: values.length }
++})
+diff --git a/server/api/appointments/cancel.post.ts b/server/api/appointments/cancel.post.ts
+new file mode 100644
+index 0000000..f1ee52c
+--- /dev/null
++++ b/server/api/appointments/cancel.post.ts
+@@ -0,0 +1,94 @@
++import { z } from 'zod'
++import { prisma } from '~~/server/utils/prisma'
++import { requireUser } from '~~/server/utils/guard'
++import { audit } from '~~/server/utils/audit'
++
++/**
++ * Foglalás lemondása.
++ *
++ * Két dolog történik, amit nem lehet elfelejteni:
++ *  - a slotLock és a roomSlotLock NULL-ra áll, különben a felszabadult idősáv
++ *    örökre blokkolt maradna,
++ *  - bérletes foglalásnál az alkalom visszaíródik, de a levonás rekordja
++ *    megmarad `reversedAt`-tel – így az elszámolás auditálható.
++ */
++const body = z.object({
++  publicRef: z.string().min(4).max(32),
++  reason: z.string().max(1000).optional(),
++})
++
++export default defineEventHandler(async (event) => {
++  const user = await requireUser(event)
++  const parsed = body.safeParse(await readBody(event))
++  if (!parsed.success) throw createError({ statusCode: 422, statusMessage: 'Érvénytelen adat.' })
++
++  const settings = await prisma.clinicSettings.findUnique({ where: { id: 1 } })
++  if (settings && !settings.allowOnlineCancellation && user.role === 'USER') {
++    throw createError({
++      statusCode: 403,
++      statusMessage: 'Az online lemondás ki van kapcsolva, kérjük hívj minket.',
++    })
++  }
++
++  const appt = await prisma.appointment.findUnique({
++    where: { publicRef: parsed.data.publicRef },
++    include: { redemption: true },
++  })
++  if (!appt) throw createError({ statusCode: 404, statusMessage: 'A foglalás nem található.' })
++
++  const isOwner = appt.userId === user.id
++  const isStaff = user.role === 'ADMIN' || user.role === 'STAFF'
++  if (!isOwner && !isStaff) {
++    throw createError({ statusCode: 404, statusMessage: 'A foglalás nem található.' })
++  }
++  if (appt.status === 'CANCELLED') return { ok: true, alreadyCancelled: true }
++  if (appt.status === 'COMPLETED') {
++    throw createError({ statusCode: 409, statusMessage: 'Megtörtént kezelés nem mondható le.' })
++  }
++
++  const freeHours = settings?.freeCancellationHours ?? 24
++  const hoursLeft = (appt.startsAt.getTime() - Date.now()) / 3_600_000
++  const late = hoursLeft < freeHours
++
++  await prisma.$transaction(async (tx) => {
++    await tx.appointment.update({
++      where: { id: appt.id },
++      data: {
++        status: 'CANCELLED',
++        cancelledAt: new Date(),
++        cancelledByUserId: user.id,
++        cancellationReason: parsed.data.reason,
++        slotLock: null,
++        roomSlotLock: null,
++      },
++    })
++
++    // Bérletes foglalásnál az alkalom visszaírása. Késői lemondásnál nem:
++    // az ÁSZF szerint az elhasznált alkalomnak számít.
++    if (appt.redemption && !appt.redemption.reversedAt && !(late && !isStaff)) {
++      await tx.passRedemption.update({
++        where: { id: appt.redemption.id },
++        data: { reversedAt: new Date(), reversalReason: 'Lemondás – alkalom visszaírva.' },
++      })
++      await tx.customerPass.update({
++        where: { id: appt.redemption.customerPassId },
++        data: { sessionsRemaining: { increment: appt.redemption.sessionsUsed } },
++      })
++    }
++  })
++
++  await audit(event, user.id, 'appointment.cancel', 'Appointment', appt.id, {
++    late,
++    hoursLeft: Math.round(hoursLeft),
++    byStaff: isStaff,
++  })
++
++  return {
++    ok: true,
++    late,
++    passSessionReturned: Boolean(appt.redemption && !(late && !isStaff)),
++    message: late
++      ? `A lemondás a ${freeHours} órás határon belül történt, ezért díjköteles lehet.`
++      : 'A foglalás díjmentesen lemondva.',
++  }
++})
+diff --git a/server/api/appointments/hold.post.ts b/server/api/appointments/hold.post.ts
+new file mode 100644
+index 0000000..d5d3c7b
+--- /dev/null
++++ b/server/api/appointments/hold.post.ts
+@@ -0,0 +1,261 @@
++import { z } from 'zod'
++import { Prisma } from '@prisma/client'
++import { randomBytes } from 'node:crypto'
++import { prisma } from '~~/server/utils/prisma'
++import { audit } from '~~/server/utils/audit'
++import { overlaps, toBusyBlocks } from '~~/server/booking/availability'
++
++/**
++ * Idősáv zárolása (HOLD).
++ *
++ * Ez a rendszer egyetlen valóban versenyhelyzetes pontja: ha ketten egyszerre
++ * kattintanak a felkínált 10:00-ra, pontosan egyiküknek kell megkapnia.
++ *
++ * Három védelmi réteg van, szándékosan:
++ *
++ *  1. Tranzakció + `SELECT ... FOR UPDATE` az érintett időablakra. A MySQL
++ *     REPEATABLE READ mellett résre is zárol (gap lock), így a párhuzamos
++ *     INSERT megvárja az elsőt.
++ *  2. `slotLock` egyedi kulcs (szakember + kezdés) és `roomSlotLock` (szoba +
++ *     kezdés). Ha a zárolási logikában valaha hiba lenne, az adatbázis akkor is
++ *     visszautasítja a másodikat. Lemondáskor NULL-ra állnak, tehát a
++ *     felszabadult idősáv újra foglalható.
++ *  3. Az idősáv ÚJRASZÁMOLÁSA a szerveren. A kliens által küldött időpontban
++ *     soha nem bízunk: ha nem szerepel a felkínálható sávok között, elutasítjuk.
++ */
++
++const body = z.object({
++  serviceId: z.number().int().positive(),
++  practitionerId: z.number().int().positive(),
++  startsAt: z.coerce.date(),
++  customer: z
++    .object({
++      lastName: z.string().min(1).max(100),
++      firstName: z.string().min(1).max(100),
++      email: z.string().email().max(200),
++      phone: z.string().min(6).max(40),
++    })
++    .optional(),
++  note: z.string().max(2000).optional(),
++})
++
++const BLOCKING = ['HOLD', 'PENDING_PAYMENT', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] as const
++
++/** Ügyfélnek mutatott azonosító. Nem sorszám, hogy ne lehessen kitalálni. */
++const publicRef = () =>
++  'V40-' +
++  randomBytes(4)
++    .toString('base64url')
++    .replace(/[^A-Za-z0-9]/g, '')
++    .toUpperCase()
++    .slice(0, 6)
++
++export default defineEventHandler(async (event) => {
++  const parsed = body.safeParse(await readBody(event))
++  if (!parsed.success) {
++    throw createError({
++      statusCode: 422,
++      statusMessage: 'Érvénytelen adat.',
++      data: { fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join('.'), i.message])) },
++    })
++  }
++  const { serviceId, practitionerId, startsAt, customer, note } = parsed.data
++
++  const session = await getUserSession(event)
++  const sessionUserId = (session?.user as { id?: number } | undefined)?.id
++  if (!sessionUserId && !customer) {
++    throw createError({
++      statusCode: 400,
++      statusMessage: 'Add meg az elérhetőségeidet, vagy jelentkezz be.',
++    })
++  }
++
++  const settings = await prisma.clinicSettings.findUnique({ where: { id: 1 } })
++  const holdMinutes = settings?.holdMinutes ?? 15
++
++  const service = await prisma.service.findFirst({
++    where: { id: serviceId, archivedAt: null, isActive: true, isBookableOnline: true },
++    include: { rooms: { include: { room: true } } },
++  })
++  if (!service) {
++    throw createError({ statusCode: 404, statusMessage: 'A kezelés nem foglalható online.' })
++  }
++
++  const link = await prisma.servicePractitioner.findUnique({
++    where: { serviceId_practitionerId: { serviceId, practitionerId } },
++    include: { practitioner: true },
++  })
++  if (!link || !link.practitioner.isActive || link.practitioner.archivedAt) {
++    throw createError({
++      statusCode: 400,
++      statusMessage: 'A választott szakember nem végzi ezt a kezelést.',
++    })
++  }
++
++  // --- 3. réteg: a felkínálhatóság újraszámolása ---------------------------
++  // Ugyanazt a motort hívjuk, mint a lista, ugyanarra a napra. Ha a kért
++  // időpont nem jön ki, akkor vagy elavult a kliens, vagy manipulált a kérés.
++  const dayFrom = new Date(startsAt.getTime() - 12 * 3_600_000)
++  const dayTo = new Date(startsAt.getTime() + 12 * 3_600_000)
++  const offered = await $fetch<{
++    practitioners: { practitionerId: number; slots: { start: string; roomId: number | null }[] }[]
++  }>('/api/availability', {
++    query: {
++      serviceId,
++      practitionerId,
++      from: dayFrom.toISOString(),
++      to: dayTo.toISOString(),
++    },
++  }).catch(() => null)
++
++  const match = offered?.practitioners
++    ?.find((p) => p.practitionerId === practitionerId)
++    ?.slots.find((s) => new Date(s.start).getTime() === startsAt.getTime())
++
++  if (!match) {
++    throw createError({
++      statusCode: 409,
++      statusMessage: 'Ez az időpont már nem elérhető. Kérlek válassz másikat.',
++    })
++  }
++
++  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000)
++  const occupied = {
++    start: new Date(startsAt.getTime() - service.bufferBeforeMin * 60_000),
++    end: new Date(endsAt.getTime() + service.bufferAfterMin * 60_000),
++  }
++  const roomId = match.roomId
++
++  // --- ügyfél: bejelentkezve vagy automatikus fiók -------------------------
++  let userId = sessionUserId
++  if (!userId && customer) {
++    // Jelszó nélküli fiók: a foglaláshoz nem kell jelszót kitalálni, de a
++    // bérlet és a foglalási előzmény így is kaphat tulajdonost.
++    const user = await prisma.user.upsert({
++      where: { email: customer.email.toLowerCase() },
++      update: {
++        lastName: customer.lastName,
++        firstName: customer.firstName,
++        phone: customer.phone,
++      },
++      create: {
++        email: customer.email.toLowerCase(),
++        lastName: customer.lastName,
++        firstName: customer.firstName,
++        phone: customer.phone,
++        privacyAcceptedAt: new Date(),
++      },
++      select: { id: true },
++    })
++    userId = user.id
++  }
++
++  const holdUntil = new Date(Date.now() + holdMinutes * 60_000)
++  const iso = startsAt.toISOString()
++
++  try {
++    const appointment = await prisma.$transaction(
++      async (tx) => {
++        // --- 1. réteg: zárolás az érintett időablakra --------------------
++        // A résekre is kiterjedő zárolás miatt párhuzamos INSERT nem tud
++        // becsúszni, amíg ez a tranzakció le nem zárul.
++        const lockFrom = new Date(occupied.start.getTime() - 4 * 3_600_000)
++        const lockTo = new Date(occupied.end.getTime() + 4 * 3_600_000)
++
++        const rows = await tx.$queryRaw<
++          {
++            id: number
++            practitionerId: number
++            roomId: number | null
++            startsAt: Date
++            endsAt: Date
++            status: string
++            holdUntil: Date | null
++            bufferBeforeMin: number
++            bufferAfterMin: number
++          }[]
++        >`
++          SELECT a.id, a.practitionerId, a.roomId, a.startsAt, a.endsAt, a.status,
++                 a.holdUntil, s.bufferBeforeMin, s.bufferAfterMin
++          FROM Appointment a
++          JOIN Service s ON s.id = a.serviceId
++          WHERE a.startsAt < ${lockTo}
++            AND a.endsAt   > ${lockFrom}
++            AND (a.practitionerId = ${practitionerId}
++                 ${roomId !== null ? Prisma.sql`OR a.roomId = ${roomId}` : Prisma.empty})
++          FOR UPDATE
++        `
++
++        const now = new Date()
++        const conflicts = (filter: (r: (typeof rows)[number]) => boolean) =>
++          toBusyBlocks(
++            rows.filter(filter).map((r) => ({
++              startsAt: r.startsAt,
++              endsAt: r.endsAt,
++              bufferBeforeMin: r.bufferBeforeMin,
++              bufferAfterMin: r.bufferAfterMin,
++              status: r.status as never,
++              holdUntil: r.holdUntil,
++            })),
++            now,
++          ).some((b) => overlaps(occupied, b))
++
++        if (conflicts((r) => r.practitionerId === practitionerId)) {
++          throw createError({ statusCode: 409, statusMessage: 'A szakember időközben foglalt lett.' })
++        }
++        if (roomId !== null && conflicts((r) => r.roomId === roomId)) {
++          throw createError({ statusCode: 409, statusMessage: 'A szoba időközben foglalt lett.' })
++        }
++
++        // --- 2. réteg: egyedi kulcsok ------------------------------------
++        return tx.appointment.create({
++          data: {
++            publicRef: publicRef(),
++            userId: userId!,
++            serviceId,
++            practitionerId,
++            roomId,
++            startsAt,
++            endsAt,
++            status: 'HOLD',
++            settlement: 'ONLINE_CARD',
++            holdUntil,
++            slotLock: `${practitionerId}:${iso}`,
++            roomSlotLock: roomId !== null ? `${roomId}:${iso}` : null,
++            priceGross: service.priceGross,
++            vatRate: service.vatRate,
++            customerNote: note,
++          },
++          select: { id: true, publicRef: true, startsAt: true, endsAt: true, holdUntil: true },
++        })
++      },
++      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 10_000 },
++    )
++
++    await audit(event, userId ?? null, 'appointment.hold', 'Appointment', appointment.id, {
++      serviceId,
++      practitionerId,
++      roomId,
++      startsAt: iso,
++    })
++
++    return {
++      ok: true,
++      publicRef: appointment.publicRef,
++      startsAt: appointment.startsAt,
++      endsAt: appointment.endsAt,
++      holdUntil: appointment.holdUntil,
++      priceGross: service.priceGross,
++      holdMinutes,
++    }
++  } catch (err) {
++    // Ha a zárolás valamiért átengedte, az egyedi kulcs itt fogja meg.
++    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
++      throw createError({
++        statusCode: 409,
++        statusMessage: 'Ezt az időpontot épp most foglalta le valaki más.',
++      })
++    }
++    throw err
++  }
++})
+diff --git a/server/api/availability.get.ts b/server/api/availability.get.ts
+new file mode 100644
+index 0000000..99958fc
+--- /dev/null
++++ b/server/api/availability.get.ts
+@@ -0,0 +1,230 @@
++import { z } from 'zod'
++import { prisma } from '~~/server/utils/prisma'
++import {
++  computeFreeSlotsWithRooms,
++  toBusyBlocks,
++  type Interval,
++  type WorkingHoursRule,
++} from '~~/server/booking/availability'
++
++/**
++ * Szabad idősávok egy kezelésre.
++ *
++ * A számítást a tesztelt motor végzi (server/booking/availability.ts); ez az
++ * endpoint csak összeszedi neki az adatot. Fontos, hogy a rendelő nyitvatartása
++ * és a szakember beosztása METSZETBEN érvényes, ezért mindkettőt átadjuk.
++ */
++
++const query = z.object({
++  serviceId: z.coerce.number().int().positive(),
++  practitionerId: z.coerce.number().int().positive().optional(),
++  from: z.coerce.date(),
++  to: z.coerce.date(),
++})
++
++/** ClinicHours -> a motor WorkingHoursRule formátuma (szakember nélkül). */
++const asRules = (rows: { weekday: number; startMinute: number; endMinute: number }[]) =>
++  rows.map((r) => ({ weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute }))
++
++/**
++ * A rendelő nyitvatartása és a szakember beosztása közös szabálylistája.
++ *
++ * A motor egy sávlistát vár, ezért itt képezzük a metszetet: minden napra a
++ * két beosztás átlapoló szakaszait adjuk vissza.
++ */
++function intersectRules(
++  clinic: WorkingHoursRule[],
++  pract: WorkingHoursRule[],
++): WorkingHoursRule[] {
++  const out: WorkingHoursRule[] = []
++  for (const c of clinic) {
++    for (const p of pract) {
++      if (p.weekday !== c.weekday) continue
++      // A szakember beosztásának érvényességi ablakát megtartjuk
++      const startMinute = Math.max(c.startMinute, p.startMinute)
++      const endMinute = Math.min(c.endMinute, p.endMinute)
++      if (endMinute > startMinute) {
++        out.push({
++          weekday: c.weekday,
++          startMinute,
++          endMinute,
++          validFrom: p.validFrom,
++          validTo: p.validTo,
++        })
++      }
++    }
++  }
++  return out
++}
++
++export default defineEventHandler(async (event) => {
++  const parsed = query.safeParse(getQuery(event))
++  if (!parsed.success) {
++    throw createError({ statusCode: 400, statusMessage: 'Hibás lekérdezés.' })
++  }
++  const { serviceId, practitionerId, from, to } = parsed.data
++
++  // Legfeljebb 60 nap egy kérésben – enélkül egy tág intervallum megterhelné a
++  // szervert, és az ügyfélnek sincs értelme egyszerre többet mutatni.
++  if (to.getTime() - from.getTime() > 60 * 86_400_000) {
++    throw createError({ statusCode: 400, statusMessage: 'Legfeljebb 60 napos időszak kérdezhető.' })
++  }
++
++  const [settings, service, clinicHours] = await Promise.all([
++    prisma.clinicSettings.findUnique({ where: { id: 1 } }),
++    prisma.service.findFirst({
++      where: { id: serviceId, archivedAt: null, isActive: true, isBookableOnline: true },
++      include: {
++        rooms: { include: { room: true } },
++        practitioners: { include: { practitioner: true } },
++      },
++    }),
++    prisma.clinicHours.findMany(),
++  ])
++
++  if (!service) {
++    throw createError({ statusCode: 404, statusMessage: 'A kezelés nem foglalható online.' })
++  }
++
++  const eligiblePractitioners = service.practitioners
++    .map((sp) => sp.practitioner)
++    .filter((p) => p.isActive && !p.archivedAt)
++    .filter((p) => !practitionerId || p.id === practitionerId)
++
++  if (!eligiblePractitioners.length) {
++    return { serviceId, slots: [], reason: 'Ehhez a kezeléshez nincs elérhető szakember.' }
++  }
++
++  const eligibleRoomIds = service.rooms
++    .map((sr) => sr.room)
++    .filter((r) => r.isActive && !r.archivedAt)
++    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
++    .map((r) => r.id)
++
++  const now = new Date()
++  // A puffer miatt a szomszédos foglalások is beleszólnak, ezért szélesebb
++  // ablakot kérdezünk, mint a vizsgált intervallum.
++  const pad = 6 * 3_600_000
++  const windowStart = new Date(from.getTime() - pad)
++  const windowEnd = new Date(to.getTime() + pad)
++
++  const [appointments, closures, timeOffRows] = await Promise.all([
++    prisma.appointment.findMany({
++      where: {
++        startsAt: { lt: windowEnd },
++        endsAt: { gt: windowStart },
++        OR: [
++          { practitionerId: { in: eligiblePractitioners.map((p) => p.id) } },
++          ...(eligibleRoomIds.length ? [{ roomId: { in: eligibleRoomIds } }] : []),
++        ],
++      },
++      select: {
++        practitionerId: true,
++        roomId: true,
++        startsAt: true,
++        endsAt: true,
++        status: true,
++        holdUntil: true,
++        service: { select: { bufferBeforeMin: true, bufferAfterMin: true } },
++      },
++    }),
++    prisma.clinicClosure.findMany({
++      where: { startsAt: { lt: windowEnd }, endsAt: { gt: windowStart } },
++    }),
++    prisma.timeOff.findMany({
++      where: {
++        practitionerId: { in: eligiblePractitioners.map((p) => p.id) },
++        startsAt: { lt: windowEnd },
++        endsAt: { gt: windowStart },
++      },
++    }),
++  ])
++
++  const toExisting = (a: (typeof appointments)[number]) => ({
++    startsAt: a.startsAt,
++    endsAt: a.endsAt,
++    bufferBeforeMin: a.service.bufferBeforeMin,
++    bufferAfterMin: a.service.bufferAfterMin,
++    status: a.status,
++    holdUntil: a.holdUntil,
++  })
++
++  // Szobánkénti foglaltság: a lemondott és a lejárt zárolás itt sem blokkol.
++  const busyByRoom: Record<number, Interval[]> = {}
++  for (const id of eligibleRoomIds) {
++    busyByRoom[id] = toBusyBlocks(
++      appointments.filter((a) => a.roomId === id).map(toExisting),
++      now,
++    )
++  }
++
++  const clinicRules = asRules(clinicHours)
++  const allWorking = await prisma.workingHours.findMany({
++    where: { practitionerId: { in: eligiblePractitioners.map((p) => p.id) } },
++  })
++
++  const closureIntervals: Interval[] = closures.map((c) => ({ start: c.startsAt, end: c.endsAt }))
++
++  // Szakemberenkénti csoportosítás egyszer, előre – a korábbi változat minden
++  // szabályhoz újra végigszűrte a teljes listát.
++  const workingByPractitioner = new Map<number, WorkingHoursRule[]>()
++  for (const w of allWorking) {
++    const list = workingByPractitioner.get(w.practitionerId) ?? []
++    list.push({
++      weekday: w.weekday,
++      startMinute: w.startMinute,
++      endMinute: w.endMinute,
++      validFrom: w.validFrom,
++      validTo: w.validTo,
++    })
++    workingByPractitioner.set(w.practitionerId, list)
++  }
++
++  const perPractitioner = eligiblePractitioners.map((p) => {
++    const practRules = workingByPractitioner.get(p.id) ?? []
++
++    const slots = computeFreeSlotsWithRooms({
++      from,
++      to,
++      now,
++      service: {
++        durationMin: service.durationMin,
++        bufferBeforeMin: service.bufferBeforeMin,
++        bufferAfterMin: service.bufferAfterMin,
++        minLeadTimeHours: service.minLeadTimeHours,
++        maxLeadTimeDays: service.maxLeadTimeDays,
++      },
++      workingHours: intersectRules(clinicRules, practRules),
++      timeOff: timeOffRows
++        .filter((t) => t.practitionerId === p.id)
++        .map((t) => ({ start: t.startsAt, end: t.endsAt })),
++      closures: closureIntervals,
++      busy: toBusyBlocks(
++        appointments.filter((a) => a.practitionerId === p.id).map(toExisting),
++        now,
++      ),
++      slotGranularityMin: settings?.slotGranularityMin ?? 15,
++      requireBuffersInsideHours: settings?.requireBuffersInsideHours ?? false,
++      rooms: { eligibleRoomIds, busyByRoom },
++    })
++
++    return {
++      practitionerId: p.id,
++      practitionerName: p.name,
++      slots: slots.map((s) => ({
++        start: s.start.toISOString(),
++        end: s.end.toISOString(),
++        roomId: s.roomId,
++      })),
++    }
++  })
++
++  return {
++    serviceId,
++    durationMin: service.durationMin,
++    priceGross: service.priceGross,
++    vatRate: service.vatRate,
++    holdMinutes: settings?.holdMinutes ?? 15,
++    practitioners: perPractitioner,
++  }
++})
+diff --git a/server/api/blogs.ts b/server/api/blogs.ts
+index f6bcfd2..12add4b 100644
+--- a/server/api/blogs.ts
++++ b/server/api/blogs.ts
+@@ -1,4 +1,4 @@
+-import prisma from "./utils/prisma";
++import { prisma } from '~~/server/utils/prisma'
+ import { H3Event } from "h3";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+diff --git a/server/api/blogs/add.ts b/server/api/blogs/add.ts
+index db0a663..f649272 100644
+--- a/server/api/blogs/add.ts
++++ b/server/api/blogs/add.ts
+@@ -1,4 +1,4 @@
+-import prisma from "../utils/prisma";
++import { prisma } from '~~/server/utils/prisma'
+ import { H3Event } from "h3";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+diff --git a/server/api/content.get.ts b/server/api/content.get.ts
+new file mode 100644
+index 0000000..0885da9
+--- /dev/null
++++ b/server/api/content.get.ts
+@@ -0,0 +1,20 @@
++import { prisma } from '~~/server/utils/prisma'
++
++/**
++ * A weboldal szövegei kulcs -> érték formában.
++ *
++ * A frontend `t('home.hero.title', 'alapértelmezés')` alakban használja: ha egy
++ * kulcs itt nem szerepel, a kódbeli alapértelmezés jelenik meg. Így egy
++ * félresikerült szerkesztés sem tud üres oldalt eredményezni.
++ */
++export default defineCachedEventHandler(
++  async (event) => {
++    const locale = String(getQuery(event).locale ?? 'hu')
++    const rows = await prisma.contentBlock.findMany({
++      where: { locale },
++      select: { key: true, value: true },
++    })
++    return Object.fromEntries(rows.map((r) => [r.key, r.value]))
++  },
++  { maxAge: 60, name: 'content', getKey: (e) => String(getQuery(e).locale ?? 'hu') },
++)
+diff --git a/server/api/cron/release-holds.post.ts b/server/api/cron/release-holds.post.ts
+new file mode 100644
+index 0000000..ddb7b6b
+--- /dev/null
++++ b/server/api/cron/release-holds.post.ts
+@@ -0,0 +1,51 @@
++import { prisma } from '~~/server/utils/prisma'
++import { requireCronSecret } from '~~/server/utils/guard'
++
++/**
++ * Lejárt zárolások felszabadítása.
++ *
++ * Enélkül az elhagyott fizetések örökre lefoglalnák az idősávokat, és a naptár
++ * fokozatosan tele lenne szellemfoglalással.
++ *
++ * A slotLock és a roomSlotLock NULL-ra állítása a fontos rész: a nullable
++ * egyedi kulcs több NULL-t megenged, tehát az idősáv ezzel válik újra
++ * foglalhatóvá. A rekordot nem töröljük – az elhagyott foglalási kísérlet
++ * önmagában is hasznos információ.
++ *
++ * cPanel cron, 5 percenként:
++ *   curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" \
++ *        https://v40vital.hu/api/cron/release-holds
++ */
++export default defineEventHandler(async (event) => {
++  requireCronSecret(event)
++
++  const now = new Date()
++  const expired = await prisma.appointment.findMany({
++    where: { status: 'HOLD', holdUntil: { lt: now } },
++    select: { id: true, publicRef: true },
++  })
++
++  if (!expired.length) return { ok: true, released: 0 }
++
++  const ids = expired.map((a) => a.id)
++  await prisma.appointment.updateMany({
++    where: { id: { in: ids } },
++    data: {
++      status: 'CANCELLED',
++      cancelledAt: now,
++      cancellationReason: 'A fizetésre adott zárolás lejárt.',
++      slotLock: null,
++      roomSlotLock: null,
++    },
++  })
++
++  await prisma.auditLog.create({
++    data: {
++      action: 'appointment.hold.expired',
++      entity: 'Appointment',
++      meta: { ids, refs: expired.map((a) => a.publicRef) },
++    },
++  })
++
++  return { ok: true, released: ids.length }
++})
+diff --git a/server/api/doctors.ts b/server/api/doctors.ts
+index 61f3fe0..c99c59c 100644
+--- a/server/api/doctors.ts
++++ b/server/api/doctors.ts
+@@ -1,4 +1,4 @@
+-import prisma from "./utils/prisma";
++import { prisma } from '~~/server/utils/prisma'
+ import { H3Event } from "h3";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+diff --git a/server/api/login.ts b/server/api/login.ts
+index f56550a..3779020 100644
+--- a/server/api/login.ts
++++ b/server/api/login.ts
+@@ -2,7 +2,7 @@
+ // import { PrismaClient } from '@prisma/client'
+ import bcrypt from 'bcryptjs'
+ 
+-import { prisma } from './utils/prisma'
++import { prisma } from '~~/server/utils/prisma'
+ 
+ export default defineEventHandler(async (event) => {
+   const body = await readBody(event)
+diff --git a/server/api/products.ts b/server/api/products.ts
+index a958f06..50937eb 100644
+--- a/server/api/products.ts
++++ b/server/api/products.ts
+@@ -1,4 +1,4 @@
+-import prisma from "./utils/prisma";
++import { prisma } from '~~/server/utils/prisma'
+ import { H3Event } from "h3";
+ import fs from "node:fs/promises";
+ import path from "node:path";
+diff --git a/server/api/products/types.ts b/server/api/products/types.ts
+index aede43e..4d5d841 100644
+--- a/server/api/products/types.ts
++++ b/server/api/products/types.ts
+@@ -1,4 +1,4 @@
+-import prisma from "../utils/prisma";
++import { prisma } from '~~/server/utils/prisma'
+ 
+ export default defineEventHandler(async (event) => {
+   try {
+diff --git a/server/api/utils/prisma.ts b/server/api/utils/prisma.ts
+deleted file mode 100644
+index ffd109e..0000000
+--- a/server/api/utils/prisma.ts
++++ /dev/null
+@@ -1,7 +0,0 @@
+-import { PrismaClient } from "@prisma/client";
+-
+-const globalForPrisma = globalThis
+-
+-export const prisma = globalForPrisma.prisma ?? new PrismaClient()
+-
+-export default prisma
+diff --git a/server/booking/availability.test.ts b/server/booking/availability.test.ts
+index 68c9fe7..9fcd84c 100644
+--- a/server/booking/availability.test.ts
++++ b/server/booking/availability.test.ts
+@@ -2,6 +2,7 @@ import { test } from 'node:test'
+ import assert from 'node:assert/strict'
+ import {
+   computeFreeSlots,
++  computeFreeSlotsWithRooms,
+   localWallToUtc,
+   localPartsOf,
+   subtractIntervals,
+@@ -350,3 +351,111 @@ test('subtractIntervals: teljes átfedés esetén nem marad semmi', () => {
+   )
+   assert.equal(out.length, 0)
+ })
++
++// ---------------------------------------------------------------------------
++//  Szoba-kapacitás
++//  A "szabad-e a szakember?" kérdés nem elég: két ügyfél nem férhet ugyanarra
++//  a kezelőágyra, akkor sem, ha két orvos épp szabad.
++// ---------------------------------------------------------------------------
++
++test('szoba nélkül nincs kapacitás-korlát, a roomId null', () => {
++  const slots = computeFreeSlotsWithRooms(base())
++  assert.equal(slots.length, 29)
++  assert.equal(slots[0].roomId, null)
++})
++
++test('két alkalmas szoba: az egyik foglaltsága nem zárja ki az idősávot', () => {
++  const slots = computeFreeSlotsWithRooms(
++    base({
++      rooms: {
++        eligibleRoomIds: [1, 2],
++        busyByRoom: { 1: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }] },
++      },
++    }),
++  )
++  const at11 = slots.find((s) => hhmm(s.start) === '11:00')
++  assert.ok(at11, 'a 11:00 továbbra is foglalható')
++  assert.equal(at11!.roomId, 2, 'a szabad szobát kapja')
++})
++
++test('minden alkalmas szoba foglalt: nincs idősáv, hiába szabad az orvos', () => {
++  const busy = [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }]
++  const slots = computeFreeSlotsWithRooms(
++    base({ rooms: { eligibleRoomIds: [1, 2], busyByRoom: { 1: busy, 2: busy } } }),
++  )
++  const times = slots.map((s) => hhmm(s.start))
++  assert.ok(!times.includes('11:00'))
++  assert.ok(!times.includes('10:30'), '10:30 + 60 perc belenyúlna')
++  assert.ok(times.includes('10:00'))
++  assert.ok(times.includes('12:00'))
++})
++
++test('a szobakiosztás determinisztikus: az első szabad szoba az elsőbbségi sorrendből', () => {
++  const a = computeFreeSlotsWithRooms(
++    base({ rooms: { eligibleRoomIds: [3, 1, 2], busyByRoom: {} } }),
++  )
++  assert.ok(a.every((s) => s.roomId === 3), 'mindig a lista első szabad eleme')
++
++  const b = computeFreeSlotsWithRooms(
++    base({
++      rooms: {
++        eligibleRoomIds: [3, 1, 2],
++        busyByRoom: { 3: [{ start: L('2026-08-03 00:00'), end: L('2026-08-04 00:00') }] },
++      },
++    }),
++  )
++  assert.ok(b.every((s) => s.roomId === 1), 'a 3-as egész napra foglalt -> az 1-es jön')
++})
++
++test('a szoba pufferét is figyeli, nem csak a nyers foglalást', () => {
++  // A szomszéd foglalás pufferrel kiterjesztett sávja: 10:45-12:15
++  const busy = toBusyBlocks(
++    [
++      {
++        startsAt: L('2026-08-03 11:00'),
++        endsAt: L('2026-08-03 12:00'),
++        bufferBeforeMin: 15,
++        bufferAfterMin: 15,
++        status: 'CONFIRMED',
++      },
++    ],
++    L('2026-08-01 10:00'),
++  )
++  const slots = computeFreeSlotsWithRooms(
++    base({
++      service: { ...base().service, bufferBeforeMin: 15, bufferAfterMin: 15 },
++      rooms: { eligibleRoomIds: [1], busyByRoom: { 1: busy } },
++    }),
++  )
++  const times = slots.map((s) => hhmm(s.start))
++  assert.ok(!times.includes('09:45'), 'a szomszéd előpuffere miatt ütközik')
++  assert.ok(times.includes('09:30'))
++  assert.ok(!times.includes('12:15'))
++  assert.ok(times.includes('12:30'))
++})
++
++test('a szakember és a szoba korlátja együtt érvényesül', () => {
++  const slots = computeFreeSlotsWithRooms(
++    base({
++      // az orvos 11-12 között máshol van
++      busy: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }],
++      // az egyetlen szoba 14-15 között foglalt
++      rooms: {
++        eligibleRoomIds: [1],
++        busyByRoom: { 1: [{ start: L('2026-08-03 14:00'), end: L('2026-08-03 15:00') }] },
++      },
++    }),
++  )
++  const times = slots.map((s) => hhmm(s.start))
++  assert.ok(!times.includes('11:00'), 'orvos foglalt')
++  assert.ok(!times.includes('14:00'), 'szoba foglalt')
++  assert.ok(times.includes('10:00'))
++  assert.ok(times.includes('15:00'))
++})
++
++test('a két belépési pont ugyanazt a jelöltkészletet adja, ha nincs szoba-korlát', () => {
++  const input = base({ busy: [{ start: L('2026-08-03 11:00'), end: L('2026-08-03 12:00') }] })
++  const plain = computeFreeSlots(input).map((d) => d.getTime())
++  const withRooms = computeFreeSlotsWithRooms(input).map((s) => s.start.getTime())
++  assert.deepEqual(plain, withRooms)
++})
+diff --git a/server/booking/availability.ts b/server/booking/availability.ts
+index ab784a6..e9a4c01 100644
+--- a/server/booking/availability.ts
++++ b/server/booking/availability.ts
+@@ -51,6 +51,21 @@ export interface ExistingAppointment {
+   holdUntil?: Date | null
+ }
+ 
++/** Egy foglalható idősáv, a hozzá kiosztható szobával. */
++export interface Slot {
++  start: Date
++  end: Date
++  /** null, ha a kezeléshez nincs szoba rendelve (nincs kapacitás-korlát) */
++  roomId: number | null
++}
++
++export interface RoomAvailability {
++  /** A kezeléshez alkalmas szobák, elsőbbségi sorrendben. */
++  eligibleRoomIds: number[]
++  /** Szobánként a már lefoglalt sávok (pufferrel kiterjesztve). */
++  busyByRoom: Record<number, Interval[]>
++}
++
+ export interface AvailabilityInput {
+   from: Date
+   to: Date
+@@ -67,6 +82,14 @@ export interface AvailabilityInput {
+    * Alapértelmezésben hamis: a takarítási puffer túlnyúlhat a záráson.
+    */
+   requireBuffersInsideHours?: boolean
++  /**
++   * Szoba-kapacitás. Ha megadott és van benne alkalmas szoba, akkor egy idősáv
++   * csak akkor foglalható, ha LEGALÁBB EGY alkalmas szoba szabad rá.
++   *
++   * Enélkül a rendszer csak a szakember idejét figyelné, és két ügyfél
++   * ugyanarra a kezelőágyra kerülhetne.
++   */
++  rooms?: RoomAvailability
+ }
+ 
+ // ----------------------------------------------------------------------------
+@@ -151,7 +174,12 @@ export function localWallToUtc(
+ //  Intervallum-műveletek
+ // ----------------------------------------------------------------------------
+ 
+-function overlaps(a: Interval, b: Interval): boolean {
++/**
++ * Két intervallum átlapolódik-e. Az érintkezés NEM átlapolódás: ha egy puffer
++ * pontosan akkor ér véget, amikor a következő foglalás kezdődik, az rendben van.
++ * Exportált, hogy a foglalás-létrehozás ugyanezt használja, ne egy másolatot.
++ */
++export function overlaps(a: Interval, b: Interval): boolean {
+   return a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime()
+ }
+ 
+@@ -237,12 +265,24 @@ function openWindowsForDay(
+ 
+ // ----------------------------------------------------------------------------
+ //  Fő belépési pont
++
++// ----------------------------------------------------------------------------
++//  Jelöltgenerálás
+ // ----------------------------------------------------------------------------
+ 
++interface Candidate {
++  start: Date
++  end: Date
++  /** A szolgáltatás sávja a pufferekkel kiterjesztve – ez foglalja a helyet. */
++  occupied: Interval
++}
++
+ /**
+- * Visszaadja a foglalható kezdő időpontokat (UTC) a [from, to) intervallumban.
++ * Végigmegy a nyitott rendelési sávokon és kiadja azokat a kezdő időpontokat,
++ * amelyek a SZAKEMBER szempontjából szabadok. A szoba-kapacitást nem vizsgálja
++ * – azt a hívó dönti el, mert két publikus belépési pont osztozik ezen.
+  */
+-export function computeFreeSlots(input: AvailabilityInput): Date[] {
++function* candidates(input: AvailabilityInput): Generator<Candidate> {
+   const {
+     from,
+     to,
+@@ -256,35 +296,28 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
+     requireBuffersInsideHours = false,
+   } = input
+ 
+-  if (service.durationMin <= 0) return []
+-  if (to.getTime() <= from.getTime()) return []
++  if (service.durationMin <= 0) return
++  if (to.getTime() <= from.getTime()) return
+ 
+   // Előjegyzési korlátok
+   const earliest = new Date(
+-    Math.max(
+-      from.getTime(),
+-      now.getTime() + service.minLeadTimeHours * 3600_000,
+-    ),
++    Math.max(from.getTime(), now.getTime() + service.minLeadTimeHours * 3600_000),
+   )
+   const latest = new Date(
+-    Math.min(
+-      to.getTime(),
+-      now.getTime() + service.maxLeadTimeDays * 86_400_000,
+-    ),
++    Math.min(to.getTime(), now.getTime() + service.maxLeadTimeDays * 86_400_000),
+   )
+-  if (latest.getTime() <= earliest.getTime()) return []
++  if (latest.getTime() <= earliest.getTime()) return
+ 
+   const cuts = [...timeOff, ...closures, ...busy]
+   const durationMs = service.durationMin * 60000
+   const stepMs = slotGranularityMin * 60000
+-  const results: Date[] = []
+ 
+-  // Végigmegyünk a helyi naptári napokon. Egy nappal korábbról indulunk,
+-  // hogy az éjfélen átnyúló nyitvatartás se maradjon ki.
++  // Egy nappal korábbról indulunk, hogy az éjfélen átnyúló nyitvatartás
++  // se maradjon ki.
+   let cursor = new Date(earliest.getTime() - 86_400_000)
+   const endGuard = latest.getTime() + 86_400_000
+-
+   const seenDays = new Set<string>()
++  const emitted = new Set<number>()
+ 
+   while (cursor.getTime() <= endGuard) {
+     const p = localPartsOf(cursor)
+@@ -301,12 +334,10 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
+             t + durationMs <= free.end.getTime();
+             t += stepMs
+           ) {
+-            const start = new Date(t)
+-            const end = new Date(t + durationMs)
+-
+-            if (start.getTime() < earliest.getTime()) continue
+-            if (start.getTime() > latest.getTime()) continue
++            if (t < earliest.getTime() || t > latest.getTime()) continue
++            if (emitted.has(t)) continue
+ 
++            const end = new Date(t + durationMs)
+             const occupied: Interval = {
+               start: new Date(t - service.bufferBeforeMin * 60000),
+               end: new Date(end.getTime() + service.bufferAfterMin * 60000),
+@@ -324,7 +355,8 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
+             // (A `free` szakasz csak a szolgáltatás hosszát garantálja.)
+             if (cuts.some((c) => overlaps(occupied, c))) continue
+ 
+-            results.push(start)
++            emitted.add(t)
++            yield { start: new Date(t), end, occupied }
+           }
+         }
+       }
+@@ -332,8 +364,48 @@ export function computeFreeSlots(input: AvailabilityInput): Date[] {
+ 
+     cursor = new Date(cursor.getTime() + 86_400_000)
+   }
++}
++
++// ----------------------------------------------------------------------------
++//  Publikus belépési pontok
++// ----------------------------------------------------------------------------
++
++/**
++ * A szakember szempontjából szabad kezdő időpontok (UTC), rendezve.
++ * Szoba-kapacitást NEM vizsgál.
++ */
++export function computeFreeSlots(input: AvailabilityInput): Date[] {
++  const out = [...candidates(input)].map((c) => c.start.getTime())
++  return [...new Set(out)].sort((a, b) => a - b).map((t) => new Date(t))
++}
++
++/**
++ * Foglalható idősávok a hozzájuk kiosztott szobával.
++ *
++ * Ha a kezeléshez van alkalmas szoba, akkor egy idősáv csak akkor kerül be, ha
++ * legalább egy szoba szabad rá – és a válasz meg is mondja, melyik. A hold
++ * létrehozásakor ugyanezt a szobát rögzítjük, tranzakcióban újraellenőrizve.
++ *
++ * A szoba kiválasztása determinisztikus (az eligibleRoomIds sorrendjében az
++ * első szabad), hogy a foglalások ne szóródjanak szét feleslegesen.
++ */
++export function computeFreeSlotsWithRooms(input: AvailabilityInput): Slot[] {
++  const eligible = input.rooms?.eligibleRoomIds ?? []
++  const busyByRoom = input.rooms?.busyByRoom ?? {}
++  const out: Slot[] = []
++
++  for (const c of candidates(input)) {
++    if (eligible.length === 0) {
++      // Nincs szoba-korlát: csak a szakember ideje számít.
++      out.push({ start: c.start, end: c.end, roomId: null })
++      continue
++    }
++
++    const roomId = eligible.find(
++      (id) => !(busyByRoom[id] ?? []).some((b) => overlaps(c.occupied, b)),
++    )
++    if (roomId !== undefined) out.push({ start: c.start, end: c.end, roomId })
++  }
+ 
+-  // Dedup + rendezés (átnyúló sávok miatt lehet ismétlés)
+-  const unique = [...new Set(results.map((d) => d.getTime()))].sort((a, b) => a - b)
+-  return unique.map((t) => new Date(t))
++  return out.sort((a, b) => a.start.getTime() - b.start.getTime())
+ }
+diff --git a/server/utils/audit.ts b/server/utils/audit.ts
+new file mode 100644
+index 0000000..55cdfa9
+--- /dev/null
++++ b/server/utils/audit.ts
+@@ -0,0 +1,32 @@
++import type { H3Event } from 'h3'
++import { prisma } from './prisma'
++
++/**
++ * Auditnapló. Egészségügyi kontextusban és pénzügyi műveletnél nem opcionális:
++ * utólag meg kell tudni mondani, ki mit módosított.
++ *
++ * A naplózás hibája NEM buktathatja el a műveletet, ezért csak logoljuk.
++ */
++export async function audit(
++  event: H3Event,
++  userId: number | null,
++  action: string,
++  entity: string,
++  entityId?: number | null,
++  meta?: unknown,
++) {
++  try {
++    await prisma.auditLog.create({
++      data: {
++        userId: userId ?? undefined,
++        action,
++        entity,
++        entityId: entityId ?? undefined,
++        meta: (meta ?? undefined) as never,
++        ip: getRequestIP(event, { xForwardedFor: true }) ?? undefined,
++      },
++    })
++  } catch (e) {
++    console.error('[audit] nem sikerült naplózni:', action, e)
++  }
++}
+diff --git a/server/utils/crud.ts b/server/utils/crud.ts
+new file mode 100644
+index 0000000..1c82b5f
+--- /dev/null
++++ b/server/utils/crud.ts
+@@ -0,0 +1,173 @@
++import type { H3Event } from 'h3'
++import { z } from 'zod'
++import { Prisma } from '@prisma/client'
++import { prisma } from './prisma'
++import { requireAdmin } from './guard'
++import { audit } from './audit'
++import { resourceOrThrow, vatFields, type Resource } from './resources'
++
++/**
++ * Generikus CRUD az admin erőforrásokhoz.
++ *
++ * Öt entitásra egyetlen implementáció: a különbségeket a resources.ts leíró
++ * hordozza. Így nem lehet olyan, hogy az egyik entitásnál elfelejtjük a
++ * jogosultság-ellenőrzést vagy az auditálást.
++ */
++
++const delegate = (r: Resource) =>
++  prisma[r.model] as unknown as {
++    findMany(a?: unknown): Promise<Record<string, unknown>[]>
++    findUnique(a: unknown): Promise<Record<string, unknown> | null>
++    create(a: unknown): Promise<{ id: number }>
++    update(a: unknown): Promise<{ id: number }>
++    count(a?: unknown): Promise<number>
++  }
++
++/** A *Ids mezők nem oszlopok: a kapcsolótáblákba mennek, nem a create/update-be. */
++function splitRelationIds(input: Record<string, unknown>) {
++  const data: Record<string, unknown> = {}
++  for (const [k, v] of Object.entries(input)) {
++    if (k.endsWith('Ids')) continue
++    data[k] = v
++  }
++  // Az áfamentesség indoklása a kulcsból következik, nem a kliens adja meg –
++  // különben egy 0%-os tétel indoklás nélkül kerülhetne számlára.
++  if ('vatRate' in data) Object.assign(data, vatFields(data.vatRate as number))
++  return data
++}
++
++function humanZodError(e: z.ZodError) {
++  return createError({
++    statusCode: 422,
++    statusMessage: 'Érvénytelen adat.',
++    data: {
++      fields: Object.fromEntries(
++        e.issues.map((i) => [i.path.join('.') || '_', i.message]),
++      ),
++    },
++  })
++}
++
++/** Egyedi kulcs ütközése -> 409, a konkrét mező megnevezésével. */
++function rethrowPrisma(err: unknown, label: string): never {
++  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
++    const target = (err.meta?.target as string[] | string | undefined) ?? []
++    const field = Array.isArray(target) ? target.join(', ') : String(target)
++    throw createError({
++      statusCode: 409,
++      statusMessage: `Ez a ${label} már létezik (${field}).`,
++      data: { fields: { [field.includes('slug') ? 'slug' : field]: 'Már használatban van.' } },
++    })
++  }
++  throw err
++}
++
++// ---------------------------------------------------------------------------
++
++export async function crudList(event: H3Event) {
++  await requireAdmin(event)
++  const r = resourceOrThrow(getRouterParam(event, 'resource') ?? '')
++  const q = getQuery(event)
++  const includeArchived = q.archived === '1' || q.archived === 'true'
++
++  const rows = await delegate(r).findMany({
++    where: includeArchived ? {} : { archivedAt: null },
++    include: r.include,
++    orderBy: r.orderBy,
++  })
++
++  return { items: rows }
++}
++
++export async function crudCreate(event: H3Event) {
++  const admin = await requireAdmin(event)
++  const r = resourceOrThrow(getRouterParam(event, 'resource') ?? '')
++
++  const parsed = r.schema.safeParse(await readBody(event))
++  if (!parsed.success) throw humanZodError(parsed.error)
++  const input = parsed.data as Record<string, unknown>
++
++  let created: { id: number }
++  try {
++    created = await delegate(r).create({ data: splitRelationIds(input) })
++  } catch (e) {
++    rethrowPrisma(e, r.label)
++  }
++
++  if (r.relations) await r.relations(created.id, input as never)
++  await audit(event, admin.id, `${r.model}.create`, r.model, created.id, input)
++
++  const row = await delegate(r).findUnique({
++    where: { id: created.id },
++    include: r.include,
++  })
++  return { item: row }
++}
++
++export async function crudUpdate(event: H3Event) {
++  const admin = await requireAdmin(event)
++  const r = resourceOrThrow(getRouterParam(event, 'resource') ?? '')
++  const id = Number(getRouterParam(event, 'id'))
++  if (!Number.isInteger(id) || id < 1) {
++    throw createError({ statusCode: 400, statusMessage: 'Hibás azonosító.' })
++  }
++
++  const existing = await delegate(r).findUnique({ where: { id } })
++  if (!existing) throw createError({ statusCode: 404, statusMessage: 'Nem található.' })
++
++  const parsed = r.schema.safeParse(await readBody(event))
++  if (!parsed.success) throw humanZodError(parsed.error)
++  const input = parsed.data as Record<string, unknown>
++
++  try {
++    await delegate(r).update({ where: { id }, data: splitRelationIds(input) })
++  } catch (e) {
++    rethrowPrisma(e, r.label)
++  }
++
++  if (r.relations) await r.relations(id, input as never)
++  await audit(event, admin.id, `${r.model}.update`, r.model, id, {
++    before: existing,
++    after: input,
++  })
++
++  const row = await delegate(r).findUnique({ where: { id }, include: r.include })
++  return { item: row }
++}
++
++/**
++ * "Törlés" = archiválás.
++ *
++ * Amire foglalás vagy számla hivatkozik, azt fizikailag nem lehet törölni: a
++ * hivatkozás elszakadna, és az elszámolás visszakövethetetlen lenne. Ezért az
++ * archivedAt beállítása történik – a weboldalról eltűnik, az előzmény megmarad.
++ */
++export async function crudArchive(event: H3Event) {
++  const admin = await requireAdmin(event)
++  const r = resourceOrThrow(getRouterParam(event, 'resource') ?? '')
++  const id = Number(getRouterParam(event, 'id'))
++
++  const existing = await delegate(r).findUnique({ where: { id } })
++  if (!existing) throw createError({ statusCode: 404, statusMessage: 'Nem található.' })
++
++  const refs = r.countRefs ? await r.countRefs(id) : { count: 0, label: '' }
++
++  await delegate(r).update({
++    where: { id },
++    data: { archivedAt: new Date(), isActive: false },
++  })
++  await audit(event, admin.id, `${r.model}.archive`, r.model, id, { refs: refs.count })
++
++  return { ok: true, archived: true, refs }
++}
++
++export async function crudRestore(event: H3Event) {
++  const admin = await requireAdmin(event)
++  const r = resourceOrThrow(getRouterParam(event, 'resource') ?? '')
++  const id = Number(getRouterParam(event, 'id'))
++
++  await delegate(r).update({ where: { id }, data: { archivedAt: null, isActive: true } })
++  await audit(event, admin.id, `${r.model}.restore`, r.model, id)
++
++  return { ok: true, archived: false }
++}
+diff --git a/server/utils/guard.ts b/server/utils/guard.ts
+new file mode 100644
+index 0000000..2b1c4a7
+--- /dev/null
++++ b/server/utils/guard.ts
+@@ -0,0 +1,59 @@
++import type { H3Event } from 'h3'
++import { prisma } from './prisma'
++
++/**
++ * Bejelentkezett felhasználó, frissen az adatbázisból.
++ *
++ * A session csak az id-t hordozza: a szerepkört MINDIG onnan olvassuk, mert egy
++ * régi sütiben benne maradt "ADMIN" érték egyébként örökké érvényes lenne, még
++ * akkor is, ha a jogosultságot közben elvettük.
++ */
++export async function requireUser(event: H3Event) {
++  const session = await getUserSession(event)
++  const id = (session?.user as { id?: number } | undefined)?.id
++
++  if (!id) {
++    throw createError({ statusCode: 401, statusMessage: 'Bejelentkezés szükséges.' })
++  }
++
++  const user = await prisma.user.findUnique({
++    where: { id },
++    select: { id: true, email: true, role: true, anonymizedAt: true },
++  })
++
++  if (!user || user.anonymizedAt) {
++    await clearUserSession(event)
++    throw createError({ statusCode: 401, statusMessage: 'A munkamenet érvénytelen.' })
++  }
++
++  return user
++}
++
++export async function requireAdmin(event: H3Event) {
++  const user = await requireUser(event)
++  if (user.role !== 'ADMIN' && user.role !== 'STAFF') {
++    // Szándékosan 404: ne szivárogtassuk, hogy létezik ilyen endpoint.
++    throw createError({ statusCode: 404, statusMessage: 'Not found' })
++  }
++  return user
++}
++
++/** Cron endpointok védelme megosztott titokkal (fejléc vagy query). */
++export function requireCronSecret(event: H3Event) {
++  const expected = process.env.CRON_SECRET
++  if (!expected) {
++    throw createError({ statusCode: 500, statusMessage: 'A CRON_SECRET nincs beállítva.' })
++  }
++  const got =
++    getHeader(event, 'x-cron-secret') ?? String(getQuery(event).secret ?? '')
++
++  // Konstans idejű összehasonlítás: hosszalapú kiszivárgás ellen
++  const a = Buffer.from(expected)
++  const b = Buffer.from(got.padEnd(expected.length).slice(0, expected.length))
++  let diff = a.length === b.length ? 0 : 1
++  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
++
++  if (diff !== 0) {
++    throw createError({ statusCode: 401, statusMessage: 'Érvénytelen titok.' })
++  }
++}
+diff --git a/server/utils/prisma.ts b/server/utils/prisma.ts
+new file mode 100644
+index 0000000..264577b
+--- /dev/null
++++ b/server/utils/prisma.ts
+@@ -0,0 +1,14 @@
++import { PrismaClient } from '@prisma/client'
++
++// Fejlesztés közben a Nuxt HMR újratölti a modulokat. Globális gyorsítótár
++// nélkül minden újratöltés új kapcsolatkészletet nyitna, és a MySQL pár perc
++// alatt elérné a max_connections limitet.
++const g = globalThis as unknown as { prisma?: PrismaClient }
++
++export const prisma =
++  g.prisma ??
++  new PrismaClient({
++    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
++  })
++
++if (process.env.NODE_ENV !== 'production') g.prisma = prisma
+diff --git a/server/utils/resources.ts b/server/utils/resources.ts
+new file mode 100644
+index 0000000..48c3f7b
+--- /dev/null
++++ b/server/utils/resources.ts
+@@ -0,0 +1,231 @@
++import { z } from 'zod'
++import { prisma } from './prisma'
++
++/**
++ * Entitás-leírók az admin CRUD-hoz.
++ *
++ * Ugyanaz a szerkezet, mint az admin prototípusban: egy helyen van a mezőlista,
++ * a validálás és a kapcsolatkezelés, és egy generikus kezelő szolgálja ki mind
++ * az ötöt. Így egy új mező felvétele egyetlen sor, nem öt fájl módosítása.
++ */
++
++const slug = z
++  .string()
++  .min(1)
++  .max(120)
++  .regex(/^[a-z0-9-]+$/, 'A slug csak kisbetűt, számot és kötőjelet tartalmazhat.')
++
++const vatRate = z.union([z.literal(0), z.literal(27)])
++const money = z.number().int().min(0).max(100_000_000)
++const ids = z.array(z.number().int().positive()).default([])
++
++export const schemas = {
++  service: z.object({
++    title: z.string().min(2).max(200),
++    slug,
++    categoryId: z.number().int().positive().nullable().default(null),
++    gender: z.enum(['Mindenki', 'Női', 'Férfi']).default('Mindenki'),
++    priceGross: money,
++    vatRate,
++    durationMin: z.number().int().min(5).max(600),
++    bufferBeforeMin: z.number().int().min(0).max(120).default(0),
++    bufferAfterMin: z.number().int().min(0).max(120).default(0),
++    minLeadTimeHours: z.number().int().min(0).max(24 * 90).default(24),
++    maxLeadTimeDays: z.number().int().min(1).max(730).default(90),
++    lead: z.string().max(500).nullable().default(null),
++    desc: z.string().max(20_000),
++    picUrl: z.string().max(500).nullable().default(null),
++    isActive: z.boolean().default(true),
++    isBookableOnline: z.boolean().default(true),
++    metaTitle: z.string().max(200).nullable().default(null),
++    metaDescription: z.string().max(400).nullable().default(null),
++    sortOrder: z.number().int().default(0),
++    roomIds: ids,
++    practitionerIds: ids,
++  }),
++
++  serviceCategory: z.object({
++    name: z.string().min(2).max(200),
++    slug,
++    shortDesc: z.string().max(2000),
++    // A felugró ablak bekezdései. Az üres bekezdéseket kiszűrjük, hogy a
++    // frontenden ne jelenjen meg üres <p>.
++    longDesc: z
++      .array(z.string().max(4000))
++      .default([])
++      .transform((a) => a.map((s) => s.trim()).filter(Boolean)),
++    iconUrl: z.string().max(500).nullable().default(null),
++    isActive: z.boolean().default(true),
++    sortOrder: z.number().int().default(0),
++  }),
++
++  practitioner: z.object({
++    name: z.string().min(2).max(200),
++    slug,
++    titles: z.string().max(100).nullable().default(null),
++    category: z.string().max(200).nullable().default(null),
++    desc: z.string().max(20_000),
++    picUrl: z.string().max(500).nullable().default(null),
++    isActive: z.boolean().default(true),
++    metaTitle: z.string().max(200).nullable().default(null),
++    metaDescription: z.string().max(400).nullable().default(null),
++    serviceIds: ids,
++  }),
++
++  room: z.object({
++    name: z.string().min(1).max(120),
++    isActive: z.boolean().default(true),
++    sortOrder: z.number().int().default(0),
++  }),
++
++  passTemplate: z.object({
++    title: z.string().min(2).max(200),
++    slug,
++    desc: z.string().max(20_000),
++    priceGross: money,
++    vatRate,
++    sessionCount: z.number().int().min(1).max(500).nullable().default(null),
++    validityDays: z.number().int().min(1).max(1825),
++    transferable: z.boolean().default(false),
++    picUrl: z.string().max(500).nullable().default(null),
++    isActive: z.boolean().default(true),
++    sortOrder: z.number().int().default(0),
++    serviceIds: ids,
++  }),
++} as const
++
++/** Az áfamentesség indoklása kötelező, ha a kulcs 0 – ez kerül a számlára. */
++export const TAM = 'TAM – Áfa tv. 85. § (1) c) egészségügyi szolgáltatás'
++export const vatFields = (rate: number) => ({
++  vatRate: rate,
++  vatExemptReason: rate === 0 ? TAM : null,
++})
++
++export interface Resource {
++  /** Prisma delegate neve */
++  model: 'service' | 'serviceCategory' | 'practitioner' | 'room' | 'passTemplate'
++  schema: z.ZodTypeAny
++  /** Emberi név a hibaüzenetekhez és az auditba */
++  label: string
++  include?: Record<string, unknown>
++  orderBy?: Record<string, 'asc' | 'desc'>[]
++  /** m:n kapcsolatok kezelése a bejövő *Ids tömbökből */
++  relations?: (id: number, input: Record<string, never>) => Promise<void>
++  /** Hány élő hivatkozás van rá – az archiválás magyarázatához */
++  countRefs?: (id: number) => Promise<{ count: number; label: string }>
++}
++
++/** m:n kapcsolat átírása: töröljük, ami kikerült, felvesszük, ami bejött. */
++async function syncJoin(
++  table: 'serviceRoom' | 'servicePractitioner' | 'passTemplateService',
++  where: Record<string, number>,
++  key: string,
++  next: number[],
++) {
++  const d = prisma[table] as unknown as {
++    deleteMany(a: unknown): Promise<unknown>
++    createMany(a: unknown): Promise<unknown>
++  }
++  await d.deleteMany({ where: { ...where, [key]: { notIn: next.length ? next : [0] } } })
++  if (next.length) {
++    await d.createMany({
++      data: next.map((v) => ({ ...where, [key]: v })),
++      skipDuplicates: true,
++    })
++  }
++}
++
++export const resources: Record<string, Resource> = {
++  services: {
++    model: 'service',
++    schema: schemas.service,
++    label: 'kezelés',
++    include: { rooms: true, practitioners: true, category: true },
++    orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
++    relations: async (id, input) => {
++      const i = input as unknown as { roomIds: number[]; practitionerIds: number[] }
++      await syncJoin('serviceRoom', { serviceId: id }, 'roomId', i.roomIds ?? [])
++      await syncJoin(
++        'servicePractitioner',
++        { serviceId: id },
++        'practitionerId',
++        i.practitionerIds ?? [],
++      )
++    },
++    countRefs: async (id) => ({
++      count: await prisma.appointment.count({ where: { serviceId: id } }),
++      label: 'foglalás hivatkozik rá',
++    }),
++  },
++
++  categories: {
++    model: 'serviceCategory',
++    schema: schemas.serviceCategory,
++    label: 'kezelés típus',
++    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
++    countRefs: async (id) => ({
++      count: await prisma.service.count({ where: { categoryId: id } }),
++      label: 'kezelés tartozik hozzá',
++    }),
++  },
++
++  practitioners: {
++    model: 'practitioner',
++    schema: schemas.practitioner,
++    label: 'szakember',
++    include: { services: true },
++    orderBy: [{ name: 'asc' }],
++    relations: async (id, input) => {
++      const i = input as unknown as { serviceIds: number[] }
++      await syncJoin(
++        'servicePractitioner',
++        { practitionerId: id },
++        'serviceId',
++        i.serviceIds ?? [],
++      )
++    },
++    countRefs: async (id) => ({
++      count: await prisma.appointment.count({ where: { practitionerId: id } }),
++      label: 'foglalás hivatkozik rá',
++    }),
++  },
++
++  rooms: {
++    model: 'room',
++    schema: schemas.room,
++    label: 'szoba',
++    include: { services: true },
++    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
++    countRefs: async (id) => ({
++      count: await prisma.appointment.count({ where: { roomId: id } }),
++      label: 'foglalás hivatkozik rá',
++    }),
++  },
++
++  passes: {
++    model: 'passTemplate',
++    schema: schemas.passTemplate,
++    label: 'bérlet',
++    include: { services: true },
++    orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
++    relations: async (id, input) => {
++      const i = input as unknown as { serviceIds: number[] }
++      await syncJoin(
++        'passTemplateService',
++        { passTemplateId: id },
++        'serviceId',
++        i.serviceIds ?? [],
++      )
++    },
++    countRefs: async (id) => ({
++      count: await prisma.customerPass.count({ where: { passTemplateId: id } }),
++      label: 'eladott bérlet hivatkozik rá',
++    }),
++  },
++}
++
++export function resourceOrThrow(name: string): Resource {
++  const r = resources[name]
++  if (!r) throw createError({ statusCode: 404, statusMessage: 'Ismeretlen erőforrás.' })
++  return r
++}
+-- 
+2.43.0
+

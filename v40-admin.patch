@@ -1,0 +1,2765 @@
+From 3b69cde7a1ba5154873e2d908cb3a42b47275c17 Mon Sep 17 00:00:00 2001
+From: V40 Vital <dev@v40vital.hu>
+Date: Thu, 13 Aug 2026 13:45:47 +0000
+Subject: [PATCH] =?UTF-8?q?Admin=20fel=C3=BClet=20=C3=A9s=20kompatibilit?=
+ =?UTF-8?q?=C3=A1si=20r=C3=A9teg=20a=20r=C3=A9gi=20endpointokhoz?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KRITIKUS javítás: a migráció után eltört volna az oldal
+A Product és a Doctor modell megszűnt (Service és Practitioner váltotta fel),
+de három endpoint és tizenkét frontend fájl még rájuk hivatkozott. A
+prisma migrate után a /api/products és /api/doctors futásidőben elhasalt volna,
+és vele a Search.vue, a Doctors.vue, a szolgaltatas/[slug].vue és a
+kalkulacio.vue is.
+
+Megoldás: a három publikus endpoint kompatibilitási réteg lett az új modellek
+felett. A válasz alakja szándékosan változatlan (type, price, time, ...), így a
+teljes arculat és minden komponens egy sor módosítás nélkül működik tovább.
+Írás viszont nem történik rajtuk: az az /api/admin útvonalra került, Zod
+validálással, jogosultsággal és auditnaplóval.
+
+Slug-hibák javítása
+A frontend a linkeket a CÍMBŐL generálta (slugify(product.title)), miközben a
+slug mostantól tárolt oszlop. A seedben "nad-energy" van, a címből viszont
+"nad-energy-infuzio" jött volna ki -> minden kezelés-link azonnal 404.
+Hat helyen átírva a tárolt slugra (Search.vue, kalkulacio.vue,
+szolgaltatas/[slug].vue), és a blog-linkeknél is, ahol ugyanez a hibaosztály
+fennállt volna egy cím átírásakor.
+
+Admin felület
+- app/layouts/admin.vue: a korábbi admin oldalak MINDEGYIKE a teljes oldalsávot
+  tartalmazta bemásolva, hét fájlban ugyanazt. Ezért kellett egy új menüpont
+  hét helyen, és csúszott el a kijelölés oldalanként.
+- app/components/AdminResource.vue: egy generikus kezelő mind az öt entitásra
+  (lista, űrlap, archiválás, visszaállítás, nem blokkoló figyelmeztetések)
+- app/utils/adminFields.ts: mezőleírók, amelyek a szerveroldali Zod sémákat
+  tükrözik; egy új mező felvétele itt is, ott is egy sor
+- öt vékony oldal: kezelesek, tipusok, szakemberek, szobak, berletek
+- a vezérlőpult a Product/Doctor helyett az új modellekből számol, és jelzi,
+  ha egy kezeléshez nincs szakember vagy szoba rendelve (ilyenkor némán nem
+  lenne foglalható idősáv)
+- a törölt modellekre író admin oldalak (termekek, orvosok) eltávolítva
+
+Jogosultság
+A route middleware csak ADMIN-t engedett, a szerveroldali requireAdmin viszont
+STAFF-ot is. Így egy STAFF felhasználó hívhatta volna az API-t, de a felületre
+nem tudott belépni. Összehangolva.
+---
+ ROADMAP.md                             |   8 +-
+ app/components/AdminResource.vue       | 433 +++++++++++++++++++++++++
+ app/components/Blogs2.vue              |   2 +-
+ app/components/Blogs3.vue              |   2 +-
+ app/components/BlueBlogs.vue           |   2 +-
+ app/components/LatestBlogs.vue         |   2 +-
+ app/components/Search.vue              |   4 +-
+ app/layouts/admin.vue                  |  87 +++++
+ app/middleware/admin.ts                |  21 +-
+ app/pages/admin/berletek/index.vue     |   7 +
+ app/pages/admin/blogok/index.vue       |   8 +-
+ app/pages/admin/index.vue              | 210 ++++--------
+ app/pages/admin/kezelesek/index.vue    |   7 +
+ app/pages/admin/orvosok/add.vue        |  75 -----
+ app/pages/admin/orvosok/edit/[id].vue  |  97 ------
+ app/pages/admin/orvosok/index.vue      | 133 --------
+ app/pages/admin/szakemberek/index.vue  |   7 +
+ app/pages/admin/szobak/index.vue       |   7 +
+ app/pages/admin/termekek/add.vue       | 113 -------
+ app/pages/admin/termekek/edit/[id].vue | 187 -----------
+ app/pages/admin/termekek/index.vue     | 125 -------
+ app/pages/admin/tipusok/index.vue      |   7 +
+ app/pages/kalkulacio.vue               |   4 +-
+ app/pages/szolgaltatas/[slug].vue      |   4 +-
+ app/utils/adminFields.ts               | 393 ++++++++++++++++++++++
+ server/api/doctors.ts                  | 135 ++------
+ server/api/products.ts                 | 268 ++++++---------
+ server/api/products/types.ts           |  42 +--
+ 28 files changed, 1205 insertions(+), 1185 deletions(-)
+ create mode 100644 app/components/AdminResource.vue
+ create mode 100644 app/layouts/admin.vue
+ create mode 100644 app/pages/admin/berletek/index.vue
+ create mode 100644 app/pages/admin/kezelesek/index.vue
+ delete mode 100644 app/pages/admin/orvosok/add.vue
+ delete mode 100644 app/pages/admin/orvosok/edit/[id].vue
+ delete mode 100644 app/pages/admin/orvosok/index.vue
+ create mode 100644 app/pages/admin/szakemberek/index.vue
+ create mode 100644 app/pages/admin/szobak/index.vue
+ delete mode 100644 app/pages/admin/termekek/add.vue
+ delete mode 100644 app/pages/admin/termekek/edit/[id].vue
+ delete mode 100644 app/pages/admin/termekek/index.vue
+ create mode 100644 app/pages/admin/tipusok/index.vue
+ create mode 100644 app/utils/adminFields.ts
+
+diff --git a/ROADMAP.md b/ROADMAP.md
+index f7ed9c8..3388539 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -15,7 +15,13 @@ működőképes, bemutatható állapot van.
+       – lista, létrehozás, módosítás, archiválás, visszaállítás
+ - [x] Zod validálás, admin jogosultság, auditnapló minden íráson
+ - [x] Szövegek: `GET/PUT /api/admin/content`, publikus `GET /api/content`
+-- [ ] Nuxt admin oldalak a `docs/prototipus-admin.html` szerint
++- [x] Nuxt admin oldalak: kezelések, típusok, szakemberek, szobák, bérletek
++      (egy generikus komponens + öt vékony oldal), admin layout, vezérlőpult
++- [x] Kompatibilitási réteg: /api/products, /api/products/types, /api/doctors
++      az új modellekre – a publikus frontend változatlan maradt
++- [ ] A blog admin oldalai még saját, bemásolt oldalsávot használnak: át kell
++      őket tenni a layoutra (app/layouts/admin.vue)
++- [ ] Kép- és fotófeltöltés az admin űrlapokon (most URL-mező van)
+ - [ ] Beosztás endpointok (ClinicHours, WorkingHours, TimeOff)
+ - [ ] Beállítások endpoint (ClinicSettings)
+ 
+diff --git a/app/components/AdminResource.vue b/app/components/AdminResource.vue
+new file mode 100644
+index 0000000..a490f35
+--- /dev/null
++++ b/app/components/AdminResource.vue
+@@ -0,0 +1,433 @@
++<script setup lang="ts">
++import {
++  RESOURCES,
++  softWarnings,
++  slugify,
++  type ResourceName,
++  type Field,
++  type Row,
++} from '~/utils/adminFields'
++
++/**
++ * Generikus erőforrás-kezelő.
++ *
++ * Egy komponens szolgálja ki mind az öt entitást; a különbségeket a
++ * `app/utils/adminFields.ts` leíró hordozza, amely a szerveroldali Zod
++ * sémákat tükrözi. Így nem lehet olyan, hogy az egyik entitás űrlapja
++ * máshogy viselkedik, vagy kimarad belőle egy mező.
++ */
++const props = defineProps<{ resource: ResourceName }>()
++const def = computed(() => RESOURCES[props.resource])
++
++const showArchived = ref(false)
++const editing = ref<Row | null>(null)
++const isNew = ref(false)
++const archiving = ref<Row | null>(null)
++const saving = ref(false)
++const fieldErrors = ref<Record<string, string>>({})
++const toast = ref('')
++
++const { data, refresh, status } = await useFetch<{ items: Row[] }>(
++  () => `/api/admin/${props.resource}`,
++  { query: computed(() => ({ archived: showArchived.value ? '1' : '0' })) },
++)
++
++// A választható opciók a többi erőforrásból jönnek. Egyszer kérjük le, mert a
++// mezőleírók több helyen is hivatkoznak ugyanarra a listára.
++const optionSources = computed(() => [
++  ...new Set(def.value.fields.map((f) => f.optionsFrom).filter(Boolean)),
++]) as ComputedRef<ResourceName[]>
++
++const { data: refData } = await useAsyncData(
++  () => `admin-refs-${props.resource}`,
++  async () => {
++    const out: Partial<Record<ResourceName, Row[]>> = {}
++    await Promise.all(
++      optionSources.value.map(async (name) => {
++        const r = await $fetch<{ items: Row[] }>(`/api/admin/${name}`)
++        out[name] = r.items
++      }),
++    )
++    return out
++  },
++  { watch: [() => props.resource] },
++)
++
++const items = computed(() => data.value?.items ?? [])
++const active = computed(() => items.value.filter((r) => !r.archivedAt))
++const archived = computed(() => items.value.filter((r) => r.archivedAt))
++
++function optionsFor(f: Field) {
++  if (f.options) return f.options
++  if (!f.optionsFrom) return []
++  const rows = refData.value?.[f.optionsFrom] ?? []
++  const label = f.optionsLabel ?? 'name'
++  return rows
++    .filter((r) => !r.archivedAt)
++    .map((r) => ({ value: r.id as number, label: String(r[label]) }))
++}
++
++/** A kapcsolt rekordokból a *Ids tömb – az űrlap ezt szerkeszti. */
++function idsFrom(row: Row, key: string) {
++  const map: Record<string, [string, string]> = {
++    roomIds: ['rooms', 'roomId'],
++    practitionerIds: ['practitioners', 'practitionerId'],
++    serviceIds: ['services', 'serviceId'],
++  }
++  const [relKey, idKey] = map[key] ?? []
++  if (!relKey) return []
++  return ((row[relKey] as Row[]) ?? []).map((j) => j[idKey] as number)
++}
++
++function openNew() {
++  fieldErrors.value = {}
++  isNew.value = true
++  editing.value = def.value.blank()
++}
++
++function openEdit(row: Row) {
++  fieldErrors.value = {}
++  isNew.value = false
++  const draft = def.value.blank()
++  for (const key of Object.keys(draft)) {
++    draft[key] = key.endsWith('Ids') ? idsFrom(row, key) : (row[key] ?? draft[key])
++  }
++  draft.id = row.id
++  editing.value = draft
++}
++
++function toggleMulti(key: string, id: number) {
++  const cur = (editing.value![key] as number[]) ?? []
++  editing.value![key] = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
++}
++
++const warnings = computed(() =>
++  editing.value ? softWarnings(props.resource, editing.value) : [],
++)
++
++async function save() {
++  const d = editing.value!
++  fieldErrors.value = {}
++
++  // Kényelmi lépés: üres slug esetén a megnevezésből képezzük. Az érdemi
++  // ellenőrzés a szerveren történik, mert a kliens megkerülhető.
++  if ('slug' in d && !String(d.slug || '').trim()) {
++    d.slug = slugify(String(d[def.value.titleKey] ?? ''))
++  }
++
++  saving.value = true
++  try {
++    const url = isNew.value
++      ? `/api/admin/${props.resource}`
++      : `/api/admin/${props.resource}/${d.id}`
++    await $fetch(url, { method: isNew.value ? 'POST' : 'PUT', body: d })
++    toast.value = isNew.value ? 'Létrehozva' : 'Mentve'
++    editing.value = null
++    await refresh()
++  } catch (e: unknown) {
++    const err = e as { data?: { data?: { fields?: Record<string, string> }; statusMessage?: string } }
++    fieldErrors.value = err.data?.data?.fields ?? {}
++    if (!Object.keys(fieldErrors.value).length) {
++      toast.value = err.data?.statusMessage ?? 'A mentés nem sikerült.'
++    }
++  } finally {
++    saving.value = false
++    setTimeout(() => (toast.value = ''), 2500)
++  }
++}
++
++const archiveInfo = ref<{ count: number; label: string } | null>(null)
++
++async function doArchive() {
++  const row = archiving.value!
++  const res = await $fetch<{ refs: { count: number; label: string } }>(
++    `/api/admin/${props.resource}/${row.id}`,
++    { method: 'DELETE' },
++  )
++  archiveInfo.value = res.refs
++  archiving.value = null
++  toast.value = 'Archiválva'
++  await refresh()
++  setTimeout(() => (toast.value = ''), 2500)
++}
++
++async function restore(row: Row) {
++  await $fetch(`/api/admin/${props.resource}/${row.id}/restore`, { method: 'POST' })
++  toast.value = 'Visszaállítva'
++  await refresh()
++  setTimeout(() => (toast.value = ''), 2500)
++}
++
++const spanClass = (f: Field) =>
++  f.span === 3 ? 'sm:col-span-2' : f.span === 2 ? 'sm:col-span-3' : 'sm:col-span-6'
++</script>
++
++<template>
++  <div>
++    <div class="flex flex-wrap items-start gap-4 mb-5">
++      <div>
++        <h1 class="font-bold text-[22px] mb-0.5">{{ def.plural }}</h1>
++        <p class="text-[#6B6660] max-w-2xl text-sm">{{ def.lead }}</p>
++      </div>
++      <button
++        class="ml-auto rounded-lg bg-[#153131] px-4 py-2.5 text-sm font-semibold text-white"
++        @click="openNew"
++      >
++        + Új {{ def.singular }}
++      </button>
++    </div>
++
++    <!-- lista -->
++    <div class="rounded-xl border border-[#E4E4DE] bg-white p-4 overflow-x-auto">
++      <p v-if="status === 'pending'" class="text-[#6B6660] text-sm">Betöltés…</p>
++      <table v-else class="w-full text-sm">
++        <thead>
++          <tr>
++            <th
++              v-for="c in def.columns"
++              :key="c.label"
++              class="border-b border-[#E4E4DE] py-2.5 px-2 text-left text-[10px] font-bold uppercase tracking-[0.07em] text-[#6B6660] whitespace-nowrap"
++            >
++              {{ c.label }}
++            </th>
++            <th class="border-b border-[#E4E4DE]" />
++          </tr>
++        </thead>
++        <tbody>
++          <tr v-for="row in active" :key="String(row.id)">
++            <td
++              v-for="(c, i) in def.columns"
++              :key="c.label"
++              class="border-b border-[#E4E4DE] py-2.5 px-2"
++              :class="i === 0 ? 'font-semibold' : ''"
++            >
++              {{ c.get(row) }}
++            </td>
++            <td class="border-b border-[#E4E4DE] py-2.5 px-2 text-right whitespace-nowrap">
++              <button
++                class="rounded-lg border border-[#E4E4DE] bg-white px-3 py-1.5 text-xs font-semibold"
++                @click="openEdit(row)"
++              >
++                Szerkesztés
++              </button>
++              <button
++                class="ml-1.5 rounded-lg border border-[#EED9D7] bg-white px-3 py-1.5 text-xs font-semibold text-[#B3261E]"
++                @click="archiving = row"
++              >
++                Törlés
++              </button>
++            </td>
++          </tr>
++          <tr v-if="!active.length">
++            <td :colspan="def.columns.length + 1" class="py-4 px-2 text-[#6B6660]">
++              Még nincs egy sem.
++            </td>
++          </tr>
++        </tbody>
++      </table>
++
++      <label class="mt-4 flex items-center gap-2 text-sm text-[#6B6660]">
++        <input v-model="showArchived" type="checkbox" class="accent-[#153131]" />
++        Archiváltak mutatása
++      </label>
++    </div>
++
++    <!-- archivált -->
++    <div v-if="showArchived && archived.length" class="mt-4 rounded-xl border border-[#E4E4DE] bg-white p-4">
++      <h2 class="font-bold mb-1">Archivált ({{ archived.length }})</h2>
++      <p class="text-[#6B6660] text-sm mb-3">
++        Ezek nem jelennek meg a weboldalon, de a korábbi foglalások és számlák
++        továbbra is hivatkoznak rájuk.
++      </p>
++      <div v-for="row in archived" :key="String(row.id)" class="flex items-center gap-3 border-t border-[#E4E4DE] py-2.5 opacity-60">
++        <span class="font-semibold text-sm">{{ row[def.titleKey] }}</span>
++        <button
++          class="ml-auto rounded-lg border border-[#E4E4DE] bg-white px-3 py-1.5 text-xs font-semibold"
++          @click="restore(row)"
++        >
++          Visszaállítás
++        </button>
++      </div>
++    </div>
++
++    <!-- szerkesztő -->
++    <div
++      v-if="editing"
++      class="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-[#171008]/50 p-5"
++      @click.self="editing = null"
++    >
++      <div class="w-full max-w-3xl rounded-2xl bg-white p-6">
++        <h3 class="font-bold text-[19px]">
++          {{ isNew ? `Új ${def.singular}` : `${def.singular} szerkesztése` }}
++        </h3>
++        <p class="text-[#6B6660] text-sm mb-5">A csillagos mezők kitöltése kötelező.</p>
++
++        <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
++          <div v-for="f in def.fields" :key="f.key" :class="spanClass(f)">
++            <label v-if="f.type !== 'bool'" class="mb-1.5 block text-xs font-bold">
++              {{ f.label }}<span v-if="f.required"> *</span>
++            </label>
++
++            <input
++              v-if="f.type === 'text'"
++              v-model="editing[f.key] as string"
++              type="text"
++              class="w-full rounded-lg border px-3 py-2"
++              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
++            />
++
++            <input
++              v-else-if="f.type === 'number'"
++              v-model.number="editing[f.key] as number"
++              type="number"
++              :min="f.min"
++              class="w-full rounded-lg border px-3 py-2"
++              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
++            />
++
++            <textarea
++              v-else-if="f.type === 'textarea'"
++              v-model="editing[f.key] as string"
++              :rows="f.rows ?? 3"
++              class="w-full rounded-lg border px-3 py-2"
++              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
++            />
++
++            <select
++              v-else-if="f.type === 'select'"
++              v-model="editing[f.key]"
++              class="w-full rounded-lg border border-[#E4E4DE] px-3 py-2 bg-white"
++            >
++              <option v-if="!f.required" :value="null">– nincs –</option>
++              <option v-for="o in optionsFor(f)" :key="String(o.value)" :value="o.value">
++                {{ o.label }}
++              </option>
++            </select>
++
++            <label v-else-if="f.type === 'bool'" class="flex items-center gap-2 text-sm font-semibold">
++              <input v-model="editing[f.key]" type="checkbox" class="accent-[#153131] w-4 h-4" />
++              {{ f.label }}
++            </label>
++
++            <div v-else-if="f.type === 'multi'" class="flex flex-wrap gap-2">
++              <label
++                v-for="o in optionsFor(f)"
++                :key="String(o.value)"
++                class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
++                :class="((editing[f.key] as number[]) ?? []).includes(o.value as number)
++                  ? 'border-[#153131] bg-[#E5F7F9]'
++                  : 'border-[#E4E4DE] bg-white'"
++              >
++                <input
++                  type="checkbox"
++                  class="accent-[#153131]"
++                  :checked="((editing[f.key] as number[]) ?? []).includes(o.value as number)"
++                  @change="toggleMulti(f.key, o.value as number)"
++                />
++                {{ o.label }}
++              </label>
++              <span v-if="!optionsFor(f).length" class="text-sm text-[#6B6660]">
++                Nincs mit választani – előbb vegyél fel legalább egyet.
++              </span>
++            </div>
++
++            <div v-else-if="f.type === 'paragraphs'" class="flex flex-col gap-2">
++              <div
++                v-for="(_, i) in (editing[f.key] as string[])"
++                :key="i"
++                class="flex items-start gap-2"
++              >
++                <textarea
++                  v-model="(editing[f.key] as string[])[i]"
++                  rows="3"
++                  class="flex-1 rounded-lg border border-[#E4E4DE] px-3 py-2"
++                />
++                <button
++                  class="h-9 w-8 rounded-lg border border-[#E4E4DE] text-[#6B6660]"
++                  @click="(editing[f.key] as string[]).splice(i, 1)"
++                >
++                  ✕
++                </button>
++              </div>
++              <button
++                class="self-start rounded-lg border border-dashed border-[#E4E4DE] px-3 py-1.5 text-sm font-semibold text-[#153131]"
++                @click="(editing[f.key] as string[]).push('')"
++              >
++                + Bekezdés
++              </button>
++            </div>
++
++            <p v-if="fieldErrors[f.key]" class="mt-1 text-xs font-semibold text-[#B3261E]">
++              {{ fieldErrors[f.key] }}
++            </p>
++            <p v-else-if="f.hint" class="mt-1 text-xs text-[#6B6660]">{{ f.hint }}</p>
++          </div>
++        </div>
++
++        <div v-if="warnings.length" class="mt-5 rounded-lg bg-[#FDF3EA] p-3 text-sm text-[#A6541B]">
++          <b>Érdemes átnézni</b>
++          <ul class="mt-1.5 list-disc pl-5">
++            <li v-for="w in warnings" :key="w">{{ w }}</li>
++          </ul>
++        </div>
++
++        <div class="mt-6 flex flex-wrap justify-end gap-2 border-t border-[#E4E4DE] pt-4">
++          <button
++            class="rounded-lg border border-[#E4E4DE] bg-white px-4 py-2.5 text-sm font-semibold"
++            @click="editing = null"
++          >
++            Mégsem
++          </button>
++          <button
++            class="rounded-lg bg-[#153131] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
++            :disabled="saving"
++            @click="save"
++          >
++            {{ saving ? 'Mentés…' : 'Mentés' }}
++          </button>
++        </div>
++      </div>
++    </div>
++
++    <!-- archiválás megerősítése -->
++    <div
++      v-if="archiving"
++      class="fixed inset-0 z-50 flex items-center justify-center bg-[#171008]/50 p-5"
++      @click.self="archiving = null"
++    >
++      <div class="w-full max-w-md rounded-2xl bg-white p-6">
++        <h3 class="font-bold text-[19px]">Törlés: {{ archiving[def.titleKey] }}</h3>
++        <p class="mt-1 text-sm text-[#6B6660]">
++          Ez a {{ def.singular }} azonnal eltűnik a weboldalról és a foglalható listákból.
++        </p>
++        <div class="mt-4 rounded-lg bg-[#E5F7F9] p-3 text-sm text-[#153131]">
++          Fizikai törlés helyett archiválás történik. Amire foglalás vagy számla
++          hivatkozik, azt nem lehet valóban törölni – a hivatkozás elszakadna, és
++          az elszámolás visszakövethetetlen lenne. Az archivált elem bármikor
++          visszaállítható.
++        </div>
++        <div class="mt-6 flex justify-end gap-2 border-t border-[#E4E4DE] pt-4">
++          <button
++            class="rounded-lg border border-[#E4E4DE] bg-white px-4 py-2.5 text-sm font-semibold"
++            @click="archiving = null"
++          >
++            Mégsem
++          </button>
++          <button
++            class="rounded-lg border border-[#EED9D7] bg-white px-4 py-2.5 text-sm font-semibold text-[#B3261E]"
++            @click="doArchive"
++          >
++            Törlés
++          </button>
++        </div>
++      </div>
++    </div>
++
++    <div
++      v-if="toast"
++      class="fixed bottom-5 left-1/2 -translate-x-1/2 rounded-lg bg-[#153131] px-5 py-3 text-sm font-semibold text-white shadow-lg"
++    >
++      {{ toast }}
++    </div>
++  </div>
++</template>
+diff --git a/app/components/Blogs2.vue b/app/components/Blogs2.vue
+index c665715..b9f4643 100644
+--- a/app/components/Blogs2.vue
++++ b/app/components/Blogs2.vue
+@@ -30,7 +30,7 @@ const slugify = (text) => {
+                 </p>
+             </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+-                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${slugify(blog.title)}`">
++                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${blog.slug}`">
+                     <NuxtImg :src="blog.picUrl" :alt="blog.title"
+                         class="h-[260px] object-cover rounded-[16px] mb-2" />
+                     <div class="">
+diff --git a/app/components/Blogs3.vue b/app/components/Blogs3.vue
+index 553453f..0744158 100644
+--- a/app/components/Blogs3.vue
++++ b/app/components/Blogs3.vue
+@@ -29,7 +29,7 @@ const slugify = (text) => {
+                 </p>
+             </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+-                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${slugify(blog.title)}`">
++                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${blog.slug}`">
+                     <NuxtImg :src="blog.picUrl" :alt="blog.title"
+                         class="h-[260px] object-cover rounded-[16px] mb-2" />
+                     <div class="">
+diff --git a/app/components/BlueBlogs.vue b/app/components/BlueBlogs.vue
+index 4eaea7b..c6f05d9 100644
+--- a/app/components/BlueBlogs.vue
++++ b/app/components/BlueBlogs.vue
+@@ -29,7 +29,7 @@ const slugify = (text) => {
+                 </p>
+             </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+-                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${slugify(blog.title)}`">
++                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${blog.slug}`">
+                     <NuxtImg :src="blog.picUrl" :alt="blog.title"
+                         class="h-[260px] object-cover rounded-[16px] mb-2" />
+                     <div class="">
+diff --git a/app/components/LatestBlogs.vue b/app/components/LatestBlogs.vue
+index a204a09..d3ed461 100644
+--- a/app/components/LatestBlogs.vue
++++ b/app/components/LatestBlogs.vue
+@@ -29,7 +29,7 @@ const slugify = (text) => {
+                 </p>
+             </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+-                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${slugify(blog.title)}`">
++                <NuxtLink v-for="blog in blogs" :key="blog.id" :to="`/blog/${blog.slug}`">
+                     <NuxtImg :src="blog.picUrl" :alt="blog.title"
+                         class="h-[260px] object-cover rounded-[16px] mb-2" />
+                     <div class="">
+diff --git a/app/components/Search.vue b/app/components/Search.vue
+index 74f5787..c9e45d1 100644
+--- a/app/components/Search.vue
++++ b/app/components/Search.vue
+@@ -85,7 +85,7 @@ const slugify = (text) => {
+         </div>
+       </div>
+       <div class="grid grid-cols-1 gap-14 lg:gap-6">
+-        <NuxtLink v-for="product in products" :key="product.id" :to="`/szolgaltatas/${slugify(product.title)}`"
++        <NuxtLink v-for="product in products" :key="product.id" :to="`/szolgaltatas/${product.slug}`"
+           class="w-full flex flex-col lg:flex-row justify-between border-b border-[#DBDBDB]">
+           <div class="flex flex-col lg:flex-row items-center gap-6">
+             <NuxtImg :src="product.picUrl" :alt="product.title" class="w-full lg:h-[280px] lg:w-[280px] object-cover flex-shrink-0 rounded-xl lg:mb-4" />
+@@ -102,7 +102,7 @@ const slugify = (text) => {
+             <p class="text-[24px] text-[#171008] dm-sans font-medium mb-8 lg:mb-14">{{ new Intl.NumberFormat('hu-HU').format(product.price) }} Ft</p>
+             <NuxtLink
+               class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
+-              :to="`/szolgaltatas/${slugify(product.title)}`">
++              :to="`/szolgaltatas/${product.slug}`">
+               Bővebben
+             </NuxtLink>
+           </div>
+diff --git a/app/layouts/admin.vue b/app/layouts/admin.vue
+new file mode 100644
+index 0000000..60a6159
+--- /dev/null
++++ b/app/layouts/admin.vue
+@@ -0,0 +1,87 @@
++<script setup lang="ts">
++/**
++ * Admin váz.
++ *
++ * A korábbi admin oldalak mindegyike a TELJES oldalsávot tartalmazta,
++ * bemásolva – hét fájlban ugyanaz a nav. Ezért volt az, hogy egy új menüpont
++ * hét helyen kellett, és a kijelölt elem oldalanként elcsúszott.
++ * Innentől egy layout hordozza.
++ */
++const { user, clear } = useUserSession()
++const route = useRoute()
++
++const GROUPS = [
++  {
++    label: 'Katalógus',
++    items: [
++      { to: '/admin/kezelesek', label: 'Kezelések' },
++      { to: '/admin/tipusok', label: 'Kezelés típusok' },
++      { to: '/admin/berletek', label: 'Bérletek' },
++    ],
++  },
++  {
++    label: 'Erőforrás',
++    items: [
++      { to: '/admin/szakemberek', label: 'Szakemberek' },
++      { to: '/admin/szobak', label: 'Szobák' },
++    ],
++  },
++  {
++    label: 'Tartalom',
++    items: [
++      { to: '/admin/blogok', label: 'Blogok' },
++    ],
++  },
++]
++
++const isOn = (to: string) => route.path === to || route.path.startsWith(to + '/')
++
++async function logout() {
++  await clear()
++  await navigateTo('/login')
++}
++</script>
++
++<template>
++  <div class="min-h-screen bg-[#F4F4F0] text-[#171008] flex">
++    <aside class="w-60 shrink-0 bg-white border-r border-[#E4E4DE] sticky top-0 h-screen overflow-y-auto py-5 px-3">
++      <NuxtLink to="/admin" class="flex items-center gap-2 px-3 pb-4 font-bold text-[17px]">
++        V40 Vital
++      </NuxtLink>
++
++      <NuxtLink
++        to="/admin"
++        class="block rounded-lg px-3 py-2 font-semibold text-sm"
++        :class="route.path === '/admin' ? 'bg-[#153131] text-white' : 'text-[#6B6660] hover:bg-[#F4F4F0]'"
++      >
++        Vezérlőpult
++      </NuxtLink>
++
++      <template v-for="g in GROUPS" :key="g.label">
++        <p class="px-3 pt-5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.09em] text-[#6B6660]">
++          {{ g.label }}
++        </p>
++        <NuxtLink
++          v-for="i in g.items"
++          :key="i.to"
++          :to="i.to"
++          class="block rounded-lg px-3 py-2 font-semibold text-sm"
++          :class="isOn(i.to) ? 'bg-[#153131] text-white' : 'text-[#6B6660] hover:bg-[#F4F4F0]'"
++        >
++          {{ i.label }}
++        </NuxtLink>
++      </template>
++
++      <div class="mt-8 border-t border-[#E4E4DE] pt-4 px-3">
++        <p class="text-xs text-[#6B6660] truncate">{{ user?.email }}</p>
++        <button class="mt-1 text-xs font-semibold text-[#B3261E]" @click="logout">
++          Kilépés
++        </button>
++      </div>
++    </aside>
++
++    <main class="flex-1 min-w-0 px-7 py-6 pb-24">
++      <slot />
++    </main>
++  </div>
++</template>
+diff --git a/app/middleware/admin.ts b/app/middleware/admin.ts
+index 2476460..b9cf8d1 100644
+--- a/app/middleware/admin.ts
++++ b/app/middleware/admin.ts
+@@ -1,12 +1,11 @@
+-export default defineNuxtRouteMiddleware(async () => {
++export default defineNuxtRouteMiddleware(() => {
+   const { user } = useUserSession()
+-  
+-    if (!user.value) {
+-      return navigateTo('/login');
+-    }
+-    
+-    if (user.value.role !== 'ADMIN') {
+-      return navigateTo('/');
+-    }
+-  });
+-  
+\ No newline at end of file
++
++  if (!user.value) return navigateTo('/login')
++
++  // A szerveroldali requireAdmin STAFF-ot is elfogad; a kettő eltérése azt
++  // jelentette volna, hogy egy STAFF felhasználó hívhatja az API-t, de a
++  // felületre nem tud belépni.
++  const role = (user.value as { role?: string }).role
++  if (role !== 'ADMIN' && role !== 'STAFF') return navigateTo('/')
++})
+diff --git a/app/pages/admin/berletek/index.vue b/app/pages/admin/berletek/index.vue
+new file mode 100644
+index 0000000..f0e6fb6
+--- /dev/null
++++ b/app/pages/admin/berletek/index.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
++</script>
++
++<template>
++  <AdminResource resource="passes" />
++</template>
+diff --git a/app/pages/admin/blogok/index.vue b/app/pages/admin/blogok/index.vue
+index ce9cca3..9fe9043 100644
+--- a/app/pages/admin/blogok/index.vue
++++ b/app/pages/admin/blogok/index.vue
+@@ -21,12 +21,12 @@
+                 <NuxtLink to="/admin/blogok"
+                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-medium text-sm">
+                     Blogok</NuxtLink>
+-                <NuxtLink to="/admin/termekek"
++                <NuxtLink to="/admin/kezelesek"
+                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Termékek</NuxtLink>
+-                <NuxtLink to="/admin/orvosok"
++                    Kezelések</NuxtLink>
++                <NuxtLink to="/admin/szakemberek"
+                     class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Orvosok</NuxtLink>
++                    Szakemberek</NuxtLink>
+             </nav>
+         </aside>
+ 
+diff --git a/app/pages/admin/index.vue b/app/pages/admin/index.vue
+index c76f970..8761b33 100644
+--- a/app/pages/admin/index.vue
++++ b/app/pages/admin/index.vue
+@@ -1,153 +1,71 @@
+-<template>
+-    <div class="min-h-screen bg-[#020617] text-slate-200 flex font-sans">
+-        <aside
+-            class="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/5 flex flex-col sticky top-0 h-screen">
+-            <div class="p-8">
+-                <div class="flex items-center gap-3 group cursor-pointer">
+-                    <div
+-                        class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
+-                        <span class="text-white font-bold text-xl">V</span>
+-                    </div>
+-                    <h2
+-                        class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+-                        V40</h2>
+-                </div>
+-            </div>
+-
+-            <nav class="flex-1 px-6 space-y-1">
+-                <NuxtLink to="/admin"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-medium text-sm">
+-                    Vezérlőpult</NuxtLink>
+-                <NuxtLink to="/admin/blogok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Blogok</NuxtLink>
+-                <NuxtLink to="/admin/termekek"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Termékek</NuxtLink>
+-                <NuxtLink to="/admin/orvosok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Orvosok</NuxtLink>
+-            </nav>
+-        </aside>
+-
+-        <main class="flex-1">
+-            <header
+-                class="h-20 px-10 flex items-center justify-between border-b border-white/5 bg-slate-950/20 backdrop-blur-md sticky top-0 z-10">
+-                <div>
+-                    <h1 class="text-2xl font-bold text-white italic tracking-tight">Vezérlőpult</h1>
+-                    <p class="text-xs text-slate-500 uppercase tracking-tighter">Rendszerállapot és gyorsstatisztika</p>
+-                </div>
+-                <div class="flex items-center gap-3 pl-6">
+-                    <div class="text-right">
+-                        <p class="text-sm font-bold text-white">Adminisztrátor</p>
+-                        <button @click="logout()" class="text-[10px] text-red-500 font-bold uppercase tracking-widest animate-pulse">Kilepes</button>
+-                    </div>
+-                </div>
+-            </header>
+-
+-            <div class="p-10 space-y-10">
+-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+-                    <StatCard title="Blog posztok" :value="blogs?.length || 0" trend="Összes bejegyzés" color="blue" />
+-                    <StatCard title="Termékek" :value="products?.length || 0" trend="Aktív kínálat" color="emerald" />
+-                    <StatCard title="Szakorvosok" :value="doctors?.length || 0" trend="Regisztrált orvos"
+-                        color="purple" />
+-                </div>
+-
+-                <div
+-                    class="bg-slate-900/40 border border-white/5 rounded-[2rem] overflow-hidden shadow-2xl backdrop-blur-sm">
+-                    <div class="p-8 flex justify-between items-center bg-white/[0.02]">
+-                        <div>
+-                            <h3 class="text-xl font-bold text-white italic">Legutóbbi Blogok</h3>
+-                            <p class="text-sm text-slate-500">A legfrissebb bejegyzések az adatbázisból.</p>
+-                        </div>
+-                        <NuxtLink to="/admin/blogok/add"
+-                            class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all flex items-center gap-2 text-sm shadow-lg shadow-blue-600/20">
+-                            <span>+</span> Új Blog
+-                        </NuxtLink>
+-                    </div>
+-
+-                    <div class="overflow-x-auto">
+-                        <table class="w-full text-left">
+-                            <thead>
+-                                <tr
+-                                    class="text-slate-500 text-[11px] uppercase tracking-widest border-b border-white/5">
+-                                    <th class="px-8 py-5 font-semibold">Cím</th>
+-                                    <th class="px-8 py-5 font-semibold">Slug</th>
+-                                    <th class="px-8 py-5 font-semibold text-right">Művelet</th>
+-                                </tr>
+-                            </thead>
+-                            <tbody class="divide-y divide-white/5">
+-                                <tr v-for="blog in recentBlogs" :key="blog.id"
+-                                    class="group hover:bg-white/[0.02] transition-colors">
+-                                    <td class="px-8 py-6">
+-                                        <p class="text-white font-semibold group-hover:text-blue-400 transition-colors">
+-                                            {{ blog.title }}</p>
+-                                    </td>
+-                                    <td class="px-8 py-6 text-sm text-slate-500 font-mono italic">/{{ blog.slug }}</td>
+-                                    <td class="px-8 py-6 text-right">
+-                                        <NuxtLink :to="`/admin/blogok/edit/${blog.id}`"
+-                                            class="px-4 py-2 hover:bg-blue-600/10 text-blue-400 rounded-lg text-xs font-bold transition border border-white/5">
+-                                            Szerkesztés
+-                                        </NuxtLink>
+-                                    </td>
+-                                </tr>
+-                            </tbody>
+-                        </table>
+-                        <div v-if="!blogs?.length" class="p-10 text-center text-slate-600 italic">
+-                            Nincs megjeleníthető adat.
+-                        </div>
+-                    </div>
+-                </div>
+-            </div>
+-        </main>
+-    </div>
+-</template>
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
+ 
+-<script setup>
+-definePageMeta({
+-    middleware: ["admin"],
+-    layout: false,
+-});
++// A korábbi vezérlőpult a Product és Doctor táblákat számolta – azok megszűntek.
++// Most az új modellekből jön a statisztika, az admin CRUD endpointokon.
++const [services, practitioners, rooms, passes, blogs] = await Promise.all([
++  $fetch<{ items: unknown[] }>('/api/admin/services'),
++  $fetch<{ items: unknown[] }>('/api/admin/practitioners'),
++  $fetch<{ items: unknown[] }>('/api/admin/rooms'),
++  $fetch<{ items: unknown[] }>('/api/admin/passes'),
++  $fetch<unknown[]>('/api/blogs').catch(() => []),
++])
+ 
+-const { clear: clearSession } = useUserSession();
++const cards = [
++  { label: 'Kezelések', value: services.items.length, to: '/admin/kezelesek' },
++  { label: 'Szakemberek', value: practitioners.items.length, to: '/admin/szakemberek' },
++  { label: 'Szobák', value: rooms.items.length, to: '/admin/szobak' },
++  { label: 'Bérletek', value: passes.items.length, to: '/admin/berletek' },
++  { label: 'Blogbejegyzések', value: Array.isArray(blogs) ? blogs.length : 0, to: '/admin/blogok' },
++]
+ 
+-async function logout() {
+-    await clearSession();
+-    await navigateTo('/');
+-}
+-
+-// Adatok lekérése a három különböző API végpontról
+-const { data: blogs } = await useFetch('/api/blogs')
+-const { data: products } = await useFetch('/api/products')
+-const { data: doctors } = await useFetch('/api/doctors')
+-
+-// Csak az utolsó 5 blog bejegyzés megjelenítése a főoldalon
+-const recentBlogs = computed(() => {
+-    return blogs.value ? [...blogs.value].reverse().slice(0, 5) : []
+-})
+-
+-// Statisztikai kártya komponens
+-const StatCard = (props) => h('div', { class: 'bg-slate-900/40 p-7 rounded-[2rem] border border-white/5 hover:border-blue-500/30 transition-all group' }, [
+-    h('p', { class: 'text-slate-500 text-sm font-medium uppercase tracking-tighter' }, props.title),
+-    h('div', { class: 'flex items-end justify-between mt-3' }, [
+-        h('p', { class: 'text-5xl font-black text-white' }, props.value.toString()),
+-        h('span', { class: `text-[10px] font-bold px-3 py-1 rounded-lg bg-${props.color}-500/10 text-${props.color}-400 border border-${props.color}-500/20 uppercase` }, props.trend)
+-    ])
+-]);
++// Amíg a beosztás-felület nincs kész, jelezzük, ha valami hiányzik – enélkül
++// néma módon nem lenne foglalható idősáv.
++const withoutRoom = computed(
++  () => (services.items as { rooms?: unknown[] }[]).filter((s) => !(s.rooms ?? []).length).length,
++)
++const withoutPractitioner = computed(
++  () =>
++    (services.items as { practitioners?: unknown[] }[]).filter(
++      (s) => !(s.practitioners ?? []).length,
++    ).length,
++)
+ </script>
+ 
+-<style>
+-/* Egy kis extra finomítás a görgetéshez */
+-::-webkit-scrollbar {
+-    width: 5px;
+-}
++<template>
++  <div>
++    <h1 class="font-bold text-[22px] mb-0.5">Vezérlőpult</h1>
++    <p class="text-[#6B6660] text-sm mb-6">Rendszerállapot és gyorsstatisztika.</p>
+ 
+-::-webkit-scrollbar-track {
+-    background: #020617;
+-}
++    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
++      <NuxtLink
++        v-for="c in cards"
++        :key="c.label"
++        :to="c.to"
++        class="rounded-xl border border-[#E4E4DE] bg-white p-4 hover:border-[#153131]"
++      >
++        <p class="text-[10px] font-bold uppercase tracking-[0.07em] text-[#6B6660]">
++          {{ c.label }}
++        </p>
++        <p class="mt-1 text-3xl font-bold">{{ c.value }}</p>
++      </NuxtLink>
++    </div>
+ 
+-::-webkit-scrollbar-thumb {
+-    background: #1e293b;
+-    border-radius: 10px;
+-}
+-</style>
+\ No newline at end of file
++    <div
++      v-if="withoutRoom || withoutPractitioner"
++      class="mt-5 rounded-xl bg-[#FDF3EA] p-4 text-sm text-[#A6541B]"
++    >
++      <b>Foglalhatóságot érintő hiányok</b>
++      <ul class="mt-1.5 list-disc pl-5">
++        <li v-if="withoutPractitioner">
++          {{ withoutPractitioner }} kezeléshez nincs szakember rendelve – ezekre nem
++          jelenik meg szabad idősáv.
++        </li>
++        <li v-if="withoutRoom">
++          {{ withoutRoom }} kezeléshez nincs szoba rendelve – ezeknél a párhuzamos
++          kapacitás nincs korlátozva.
++        </li>
++      </ul>
++    </div>
++  </div>
++</template>
+diff --git a/app/pages/admin/kezelesek/index.vue b/app/pages/admin/kezelesek/index.vue
+new file mode 100644
+index 0000000..fcf82fc
+--- /dev/null
++++ b/app/pages/admin/kezelesek/index.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
++</script>
++
++<template>
++  <AdminResource resource="services" />
++</template>
+diff --git a/app/pages/admin/orvosok/add.vue b/app/pages/admin/orvosok/add.vue
+deleted file mode 100644
+index fbfb761..0000000
+--- a/app/pages/admin/orvosok/add.vue
++++ /dev/null
+@@ -1,75 +0,0 @@
+-<template>
+-    <div class="w-full min-h-screen bg-[#F8F8F8] flex justify-center items-center px-4 py-10">
+-        <div class="w-full max-w-2xl p-6 bg-white shadow-sm rounded-2xl">
+-            <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center bricolage-grotesque-custom">Új Orvos</h1>
+-            <form @submit.prevent="addDoctor">
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Név</label>
+-                    <input v-model="form.name" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Kategória</label>
+-                    <input v-model="form.categ" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Leírás</label>
+-                    <input v-model="form.desc" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-8">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Profilkép</label>
+-                    <input type="file" @change="handleFileChange" accept="image/*"
+-                        class="w-full border border-gray-300 p-3 rounded-lg" required />
+-                    <div v-if="previewUrl" class="mt-4 text-center">
+-                        <img :src="previewUrl"
+-                            class="w-48 h-48 mx-auto object-cover shadow-md" />
+-                    </div>
+-                </div>
+-                <button type="submit" :disabled="submitting"
+-                    class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg active:scale-95 disabled:bg-gray-400">
+-                    {{ submitting ? 'Mentés...' : 'Orvos Mentése' }}
+-                </button>
+-                <NuxtLink to="/admin/orvosok" class="block text-center mt-4 text-sm text-gray-500">Mégse</NuxtLink>
+-            </form>
+-        </div>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({ middleware: ["admin"] })
+-
+-const router = useRouter();
+-const submitting = ref(false);
+-const selectedFile = ref(null);
+-const previewUrl = ref(null);
+-const form = ref({ name: "", desc: "", categ: "" });
+-
+-const handleFileChange = (e) => {
+-    const file = e.target.files[0];
+-    if (file) {
+-        selectedFile.value = file;
+-        previewUrl.value = URL.createObjectURL(file);
+-    }
+-};
+-
+-const addDoctor = async () => {
+-    submitting.value = true;
+-    const fd = new FormData();
+-    fd.append("name", form.value.name);
+-    fd.append("desc", form.value.desc);
+-    fd.append("categ", form.value.categ);
+-    if (selectedFile.value) fd.append("picUrl", selectedFile.value);
+-
+-    try {
+-        const response = await fetch("/api/doctors", { method: "POST", body: fd });
+-        const res = await response.json();
+-        if (res.success) router.push('/admin/orvosok');
+-    } catch (e) { alert("Hiba történt!"); }
+-    finally { submitting.value = false; }
+-};
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/orvosok/edit/[id].vue b/app/pages/admin/orvosok/edit/[id].vue
+deleted file mode 100644
+index c0601cb..0000000
+--- a/app/pages/admin/orvosok/edit/[id].vue
++++ /dev/null
+@@ -1,97 +0,0 @@
+-<template>
+-    <div class="w-full min-h-screen bg-[#F8F8F8] flex justify-center items-center px-4 py-10">
+-        <div class="w-full max-w-2xl p-6 bg-white shadow-sm rounded-2xl border border-gray-100">
+-            <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center bricolage-grotesque-custom">Orvos Szerkesztése
+-            </h1>
+-            <div v-if="pending" class="text-center py-10 text-gray-500 italic">Adatok betöltése...</div>
+-            <form v-else @submit.prevent="updateProduct">
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Orvos neve</label>
+-                    <input v-model="form.name" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Kategória</label>
+-                    <input v-model="form.categ" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Leírás</label>
+-                    <input v-model="form.desc" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-                <div class="mb-8">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Profilkép cseréje (opcionális)</label>
+-                    <input type="file" @change="handleFileChange" accept="image/*"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none" />
+-                    <div class="mt-4 text-center">
+-                        <p class="text-[10px] text-gray-400 uppercase font-bold mb-1">Jelenlegi kép:</p>
+-                        <img :src="previewUrl || form.picUrl"
+-                            class="w-48 h-48 mx-auto object-cove p-1 bg-white shadow-sm" />
+-                    </div>
+-                </div>
+-                <button type="submit" :disabled="submitting"
+-                    class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg active:scale-95 disabled:bg-gray-400 shadow-blue-200">
+-                    {{ submitting ? 'Frissítés...' : 'Módosítások mentése' }}
+-                </button>
+-                <NuxtLink to="/admin/orvosok"
+-                    class="block text-center mt-4 text-sm text-gray-400 hover:text-gray-600 transition">Mégse és vissza
+-                </NuxtLink>
+-            </form>
+-        </div>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({ middleware: ["admin"] })
+-
+-const route = useRoute();
+-const router = useRouter();
+-const pending = ref(true);
+-const submitting = ref(false);
+-const selectedFile = ref(null);
+-const previewUrl = ref(null);
+-const form = ref({ id: route.params.id, name: "", desc: "", categ: "", picUrl: "" });
+-
+-const loadDoctor = async () => {
+-    try {
+-        const data = await $fetch(`/api/doctors?id=${route.params.id}`);
+-        if (data) {
+-            form.value.name = data.name;
+-            form.value.desc = data.desc;
+-            form.value.categ = data.category;
+-            form.value.picUrl = data.picUrl;
+-        }
+-    } finally { pending.value = false; }
+-};
+-
+-const handleFileChange = (e) => {
+-    const file = e.target.files[0];
+-    if (file) {
+-        selectedFile.value = file;
+-        previewUrl.value = URL.createObjectURL(file);
+-    }
+-};
+-
+-const updateProduct = async () => {
+-    submitting.value = true;
+-    const fd = new FormData();
+-    fd.append("id", form.value.id);
+-    fd.append("name", form.value.name);
+-    fd.append("desc", form.value.desc);
+-    fd.append("categ", form.value.categ);
+-    if (selectedFile.value) fd.append("picUrl", selectedFile.value);
+-
+-    try {
+-        const response = await fetch("/api/doctors", { method: "PUT", body: fd });
+-        const res = await response.json();
+-        if (res.success) router.push('/admin/orvosok');
+-    } catch (e) { alert("Hiba történt!"); }
+-    finally { submitting.value = false; }
+-};
+-
+-loadDoctor();
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/orvosok/index.vue b/app/pages/admin/orvosok/index.vue
+deleted file mode 100644
+index 2807002..0000000
+--- a/app/pages/admin/orvosok/index.vue
++++ /dev/null
+@@ -1,133 +0,0 @@
+-<template>
+-    <div class="min-h-screen bg-[#020617] text-slate-200 flex font-sans">
+-        <aside
+-            class="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/5 flex flex-col sticky top-0 h-screen">
+-            <div class="p-8">
+-                <div class="flex items-center gap-3 group">
+-                    <div
+-                        class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+-                        <span class="text-white font-bold text-xl">V</span>
+-                    </div>
+-                    <h2
+-                        class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+-                        V40 Admin</h2>
+-                </div>
+-            </div>
+-            <nav class="flex-1 px-6 space-y-1">
+-                <NuxtLink to="/admin"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm italic">
+-                    Vezérlőpult</NuxtLink>
+-                <NuxtLink to="/admin/blogok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Blogok</NuxtLink>
+-                <NuxtLink to="/admin/termekek"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Termékek</NuxtLink>
+-                <NuxtLink to="/admin/orvosok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-medium text-sm">
+-                    Orvosok</NuxtLink>
+-            </nav>
+-        </aside>
+-
+-        <main class="flex-1">
+-            <header
+-                class="h-20 px-10 flex items-center justify-between border-b border-white/5 bg-slate-950/20 backdrop-blur-md sticky top-0 z-10">
+-                <h1 class="text-xl font-bold text-white uppercase tracking-widest">Orvoskezelő központ</h1>
+-                <div class="flex items-center gap-3 pr-4 border-r border-white/10 mr-4">
+-                    <span class="text-xs font-bold text-emerald-400 uppercase tracking-tighter">Adatbázis: Live</span>
+-                </div>
+-            </header>
+-
+-            <div class="p-10 space-y-8">
+-                <div class="flex justify-between items-end">
+-                    <div>
+-                        <h2 class="text-4xl font-black text-white tracking-tight">Orvosaink</h2>
+-                        <p class="text-slate-500 mt-1 text-sm italic">Szakértői csapat és biográfiák kezelése.</p>
+-                    </div>
+-                    <NuxtLink to="/admin/orvosok/add"
+-                        class="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.5rem] font-bold transition-all shadow-xl shadow-blue-600/30 active:scale-95">
+-                        + Új orvos rögzítése
+-                    </NuxtLink>
+-                </div>
+-
+-                <div
+-                    class="bg-slate-900/40 border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl backdrop-blur-sm">
+-                    <table class="w-full text-left border-collapse">
+-                        <thead>
+-                            <tr
+-                                class="text-slate-500 text-[11px] uppercase tracking-[0.2em] border-b border-white/5 bg-white/[0.02]">
+-                                <th class="px-10 py-6 font-semibold tracking-widest">Név / Titulus</th>
+-                                <th class="px-10 py-6 font-semibold">Szakterület</th>
+-                                
+-                                <th class="px-10 py-6 font-semibold text-right">Kezelés</th>
+-                            </tr>
+-                        </thead>
+-                        <tbody class="divide-y divide-white/5">
+-                            <tr v-for="doctor in doctors" :key="doctor.id"
+-                                class="group hover:bg-white/[0.03] transition-colors">
+-                                <td class="px-10 py-7 flex items-center gap-4">
+-                                    <img :src="doctor.picUrl || 'https://via.placeholder.com/50'"
+-                                        class="w-6 h-6 rounded-full object-cover border border-white/10" />
+-                                    <div>
+-                                        <p
+-                                            class="font-bold text-lg text-white group-hover:text-blue-400 transition-colors">
+-                                            {{ doctor.name }}</p>
+-                                        <p class="text-[10px] text-slate-500 font-mono italic">ID: #{{ doctor.id }}</p>
+-                                    </div>
+-                                </td>
+-                               
+-                                <td class="px-10 py-7">
+-                                    <span
+-                                        class=" text-white text-[14px] tracking-widest">
+-                                        {{ doctor.desc }}
+-                                    </span>
+-                                </td>
+-                                <td class="px-10 py-7 text-right">
+-                                    <div class="flex justify-end gap-3">
+-                                        <NuxtLink :to="`/admin/orvosok/edit/${doctor.id}`"
+-                                            class="px-4 py-2 bg-slate-800 hover:bg-blue-600/20 text-blue-400 rounded-xl transition text-xs font-bold border border-white/5">
+-                                            Szerkeszt</NuxtLink>
+-                                        <button @click="handleDelete(doctor.id)"
+-                                            class="px-4 py-2 bg-slate-800 hover:bg-red-600/20 text-red-400 rounded-xl transition text-xs font-bold border border-white/5">
+-                                            Töröl
+-                                        </button>
+-                                    </div>
+-                                </td>
+-                            </tr>
+-                        </tbody>
+-                    </table>
+-                    <div v-if="doctors?.length === 0" class="p-20 text-center text-slate-600 font-italic">
+-                        Még nem rögzítettél orvost az adatbázisba.
+-                    </div>
+-                </div>
+-            </div>
+-        </main>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({
+-    middleware: ["admin"],
+-    layout: false,
+-});
+-// Orvosok lekérése
+-const { data: doctors, refresh } = await useFetch('/api/doctors')
+-
+-const handleDelete = async (id) => {
+-    if (confirm('Biztosan törlöd ezt az orvost a listáról?')) {
+-        try {
+-            const res = await $fetch('/api/doctors', {
+-                method: 'DELETE',
+-                body: { id }
+-            })
+-            if (res.success) {
+-                refresh()
+-            } else {
+-                alert("Hiba: " + res.error)
+-            }
+-        } catch (err) {
+-            alert("Hiba történt a törlés során.")
+-        }
+-    }
+-}
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/szakemberek/index.vue b/app/pages/admin/szakemberek/index.vue
+new file mode 100644
+index 0000000..d98323b
+--- /dev/null
++++ b/app/pages/admin/szakemberek/index.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
++</script>
++
++<template>
++  <AdminResource resource="practitioners" />
++</template>
+diff --git a/app/pages/admin/szobak/index.vue b/app/pages/admin/szobak/index.vue
+new file mode 100644
+index 0000000..a0a8df6
+--- /dev/null
++++ b/app/pages/admin/szobak/index.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
++</script>
++
++<template>
++  <AdminResource resource="rooms" />
++</template>
+diff --git a/app/pages/admin/termekek/add.vue b/app/pages/admin/termekek/add.vue
+deleted file mode 100644
+index 251f93c..0000000
+--- a/app/pages/admin/termekek/add.vue
++++ /dev/null
+@@ -1,113 +0,0 @@
+-<template>
+-    <div class="w-full min-h-screen bg-[#F8F8F8] flex justify-center items-center px-4 py-10">
+-        <div class="w-full max-w-2xl p-6 bg-white shadow-sm rounded-2xl">
+-            <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center bricolage-grotesque-custom">
+-                Új Termék / Szolgáltatás
+-            </h1>
+-            <form @submit.prevent="addProduct">
+-
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Megnevezés (Title)</label>
+-                    <input v-model="form.title" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+-                    <div>
+-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Ár</label>
+-                        <input v-model="form.price" type="number"
+-                            class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                            required />
+-                    </div>
+-                    <div>
+-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Időtartam (opcionális)</label>
+-                        <input v-model="form.time" type="text"
+-                            class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" />
+-                    </div>
+-                </div>
+-
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Típus</label>
+-                    <input v-model="form.type" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Leírás (Desc)</label>
+-                    <input v-model="form.desc" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="mb-6">
+-                    <div>
+-                        <label class=" +w-full block text-sm font-semibold text-gray-700 mb-2">Nem:</label>
+-                        <select v-model="form.gender"
+-                            class="w-full border border-gray-300 p-3 rounded-lg bg-white outline-none">
+-                            <option value="Mindenki">Mindenki</option>
+-                            <option value="Férfi">Férfi</option>
+-                            <option value="Női">Női</option>
+-                        </select>
+-                    </div>
+-                    
+-                </div>
+-
+-                <div class="mb-8">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Termék kép</label>
+-                    <input type="file" @change="handleFileChange" accept="image/*"
+-                        class="w-full border border-gray-300 p-3 rounded-lg" required />
+-
+-                    <div v-if="previewUrl" class="mt-4">
+-                        <p class="text-xs text-gray-500 mb-2 uppercase font-bold">Előnézet:</p>
+-                        <img :src="previewUrl" class="w-full max-h-64 object-contain rounded-lg border bg-gray-50" />
+-                    </div>
+-                </div>
+-
+-                <button type="submit" :disabled="submitting"
+-                    class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg disabled:bg-gray-400">
+-                    {{ submitting ? 'Mentés...' : 'Termék Mentése' }}
+-                </button>
+-
+-                <NuxtLink to="/admin/termekek" class="block text-center mt-4 text-sm text-gray-500">Mégse</NuxtLink>
+-            </form>
+-        </div>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({ middleware: ["admin"] })
+-
+-const router = useRouter();
+-const submitting = ref(false);
+-const selectedFile = ref(null);
+-const previewUrl = ref(null);
+-
+-const form = ref({
+-    title: "", desc: "", type: "", price: "", time: "", gender: "Mindenki"
+-});
+-
+-const handleFileChange = (e) => {
+-    const file = e.target.files[0];
+-    if (file) {
+-        selectedFile.value = file;
+-        previewUrl.value = URL.createObjectURL(file);
+-    }
+-};
+-
+-const addProduct = async () => {
+-    submitting.value = true;
+-    const fd = new FormData();
+-    Object.keys(form.value).forEach(key => fd.append(key, form.value[key]));
+-    if (selectedFile.value) fd.append("picUrl", selectedFile.value);
+-
+-    try {
+-        const response = await fetch("/api/products", { method: "POST", body: fd });
+-        const res = await response.json();
+-        if (res.success) router.push('/admin/termekek');
+-    } catch (error) {
+-        alert("Hiba történt!");
+-    } finally { submitting.value = false; }
+-};
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/termekek/edit/[id].vue b/app/pages/admin/termekek/edit/[id].vue
+deleted file mode 100644
+index cb85b88..0000000
+--- a/app/pages/admin/termekek/edit/[id].vue
++++ /dev/null
+@@ -1,187 +0,0 @@
+-<template>
+-    <div class="w-full min-h-screen bg-[#F8F8F8] flex justify-center items-center px-4 py-10">
+-        <div class="w-full max-w-2xl p-6 bg-white shadow-sm rounded-2xl border border-gray-100">
+-            <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center bricolage-grotesque-custom">
+-                Termék Szerkesztése
+-            </h1>
+-
+-            <div v-if="pending" class="text-center py-10 text-gray-500 italic">
+-                Adatok betöltése...
+-            </div>
+-
+-            <form v-else @submit.prevent="updateProduct">
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Megnevezés (Title)</label>
+-                    <input v-model="form.title" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+-                    <div>
+-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Ár</label>
+-                        <input v-model="form.price" type="text"
+-                            class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                            required />
+-                    </div>
+-                    <div>
+-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Időtartam</label>
+-                        <input v-model="form.time" type="text"
+-                            class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+-                    </div>
+-                </div>
+-
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Típus</label>
+-                    <input v-model="form.type" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="mb-6">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Leírás</label>
+-                    <input v-model="form.desc" type="text"
+-                        class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+-                        required />
+-                </div>
+-
+-                <div class="mb-6">
+-                    <div>
+-                        <label class=" +w-full block text-sm font-semibold text-gray-700 mb-2">Nem:</label>
+-                        <select v-model="form.gender"
+-                            class="w-full border border-gray-300 p-3 rounded-lg bg-white outline-none">
+-                            <option value="Mindenki">Mindenki</option>
+-                            <option value="Férfi">Férfi</option>
+-                            <option value="Női">Női</option>
+-                        </select>
+-                    </div>
+-
+-                </div>
+-
+-               
+-
+-                <div class="mb-8">
+-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Termék kép cseréje
+-                        (opcionális)</label>
+-                    <input type="file" @change="handleFileChange" accept="image/*"
+-                        class="w-full border border-gray-300 p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 file:mr-4 file:py-1 file:px-4 file:rounded-full file:border-0 file:text-sm file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+-
+-                    <div class="mt-4">
+-                        <p class="text-[10px] text-gray-400 uppercase font-bold mb-1 text-center">
+-                            {{ selectedFile ? 'Új kép előnézete:' : 'Jelenlegi kép:' }}
+-                        </p>
+-                        <img :src="previewUrl || form.picUrl" alt="Előnézet"
+-                            class="w-full max-h-48 object-contain rounded-lg border border-dashed p-2 bg-gray-50 shadow-inner" />
+-                    </div>
+-                </div>
+-
+-                <button type="submit" :disabled="submitting"
+-                    class="w-full bricolage-grotesque-custom bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg active:scale-95 shadow-blue-200 disabled:bg-gray-400">
+-                    {{ submitting ? 'Frissítés folyamatban...' : 'Módosítások mentése' }}
+-                </button>
+-
+-                <NuxtLink to="/admin/termekek"
+-                    class="block text-center mt-4 text-sm text-gray-400 hover:text-gray-600 transition">
+-                    Mégse / Vissza a listához
+-                </NuxtLink>
+-            </form>
+-        </div>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({ middleware: ["admin"] })
+-
+-definePageMeta({ layout: false });
+-
+-const route = useRoute();
+-const router = useRouter();
+-const productId = route.params.id;
+-
+-const pending = ref(true);
+-const submitting = ref(false);
+-const selectedFile = ref(null);
+-const previewUrl = ref(null);
+-
+-const form = ref({
+-    id: productId,
+-    title: "",
+-    desc: "",
+-    type: "",
+-    price: "",
+-    picUrl: "", // Ez tárolja az adatbázisból jövő URL-t
+-    time: "",
+-    gender: ""
+-});
+-
+-// 1. Adatok betöltése
+-const loadProduct = async () => {
+-    try {
+-        const data = await $fetch(`/api/products?id=${productId}`);
+-        if (data) {
+-            form.value.title = data.title;
+-            form.value.desc = data.desc;
+-            form.value.type = data.type; // Fontos!
+-            form.value.price = data.price;
+-            form.value.picUrl = data.picUrl;
+-            form.value.time = data.time || "";
+-            form.value.gender = data.gender || "";
+-        }
+-    } catch (e) {
+-        console.error("Hiba:", e);
+-        alert("Nem sikerült a termék betöltése.");
+-    } finally {
+-        pending.value = false;
+-    }
+-};
+-
+-// 2. Új kép kiválasztása
+-const handleFileChange = (e) => {
+-    const file = e.target.files[0];
+-    if (file) {
+-        selectedFile.value = file;
+-        previewUrl.value = URL.createObjectURL(file);
+-    }
+-};
+-
+-// 3. Mentés (PUT) FormData használatával
+-const updateProduct = async () => {
+-    submitting.value = true;
+-    try {
+-        const fd = new FormData();
+-        fd.append("id", productId);
+-        fd.append("title", form.value.title);
+-        fd.append("desc", form.value.desc);
+-        fd.append("type", form.value.type);
+-        fd.append("price", form.value.price);
+-        fd.append("gender", form.value.gender);
+-        fd.append("time", form.value.time || "");
+-
+-        // Csak akkor küldjük el a picUrl kulcsot fájlként, ha van új fájl
+-        if (selectedFile.value) {
+-            fd.append("picUrl", selectedFile.value);
+-        }
+-
+-        const response = await fetch("/api/products", {
+-            method: "PUT",
+-            body: fd // JSON helyett FormData-t küldünk
+-        });
+-
+-        const result = await response.json();
+-
+-        if (result.success) {
+-            alert("Sikeresen frissítve!");
+-            router.push('/admin/termekek');
+-        } else {
+-            alert("Hiba: " + result.error);
+-        }
+-    } catch (error) {
+-        console.error("Mentési hiba:", error);
+-        alert("Hiba történt a mentés során.");
+-    } finally {
+-        submitting.value = false;
+-    }
+-};
+-
+-loadProduct()
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/termekek/index.vue b/app/pages/admin/termekek/index.vue
+deleted file mode 100644
+index 7d442f0..0000000
+--- a/app/pages/admin/termekek/index.vue
++++ /dev/null
+@@ -1,125 +0,0 @@
+-<template>
+-    <div class="min-h-screen bg-[#020617] text-slate-200 flex font-sans">
+-        <aside
+-            class="w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/5 flex flex-col sticky top-0 h-screen">
+-            <div class="p-8">
+-                <div class="flex items-center gap-3 group">
+-                    <div
+-                        class="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+-                        <span class="text-white font-bold text-xl">V</span>
+-                    </div>
+-                    <h2
+-                        class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+-                        V40 Admin</h2>
+-                </div>
+-            </div>
+-            <nav class="flex-1 px-6 space-y-1">
+-                <NuxtLink to="/admin"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm italic">
+-                    Vezérlőpult</NuxtLink>
+-                <NuxtLink to="/admin/blogok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Blogok</NuxtLink>
+-                <NuxtLink to="/admin/termekek"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/20 font-medium text-sm">
+-                    Termékek</NuxtLink>
+-                <NuxtLink to="/admin/orvosok"
+-                    class="flex items-center gap-4 px-4 py-3.5 rounded-2xl text-slate-400 hover:bg-white/5 transition-all text-sm">
+-                    Orvosok</NuxtLink>
+-            </nav>
+-        </aside>
+-
+-        <main class="flex-1">
+-            <header
+-                class="h-20 px-10 flex items-center justify-between border-b border-white/5 bg-slate-950/20 backdrop-blur-md sticky top-0 z-10">
+-                <h1 class="text-xl font-bold text-white uppercase tracking-widest">Termékkezelő központ</h1>
+-                <div class="flex items-center gap-3 pr-4 border-r border-white/10 mr-4">
+-                    <span class="text-xs font-bold text-emerald-400 uppercase tracking-tighter">Adatbázis: Live</span>
+-                </div>
+-            </header>
+-
+-            <div class="p-10 space-y-8">
+-                <div class="flex justify-between items-end">
+-                    <div>
+-                        <h2 class="text-4xl font-black text-white tracking-tight">Termékek</h2>
+-                        <p class="text-slate-500 mt-1 text-sm italic">Webshop készlet és árak kezelése.</p>
+-                    </div>
+-                    <NuxtLink to="/admin/termekek/add"
+-                        class="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-[1.5rem] font-bold transition-all shadow-xl shadow-blue-600/30 active:scale-95">
+-                        + Új termék
+-                    </NuxtLink>
+-                </div>
+-
+-                <div
+-                    class="bg-slate-900/40 border border-white/5 rounded-[2.5rem] overflow-hidden shadow-2xl backdrop-blur-sm">
+-                    <table class="w-full text-left border-collapse">
+-                        <thead>
+-                            <tr
+-                                class="text-slate-500 text-[11px] uppercase tracking-[0.2em] border-b border-white/5 bg-white/[0.02]">
+-                                <th class="px-10 py-6 font-semibold tracking-widest">Termék neve</th>
+-                                <th class="px-10 py-6 font-semibold">Leírás</th>
+-                                <th class="px-10 py-6 font-semibold">Ár</th>
+-                                <th class="px-10 py-6 font-semibold text-right">Kezelés</th>
+-                            </tr>
+-                        </thead>
+-                        <tbody class="divide-y divide-white/5">
+-                            <tr v-for="product in products" :key="product.id"
+-                                class="group hover:bg-white/[0.03] transition-colors">
+-                                <td class="px-10 py-7">
+-                                    <p class="font-bold text-lg text-white group-hover:text-blue-400 transition-colors">
+-                                        {{ product.title }}</p>
+-                                </td>
+-                                <td class="px-10 py-7">
+-                                    <span
+-                                        class="px-3 py-1 text-slate-400 rounded-full line-clamp-2 text-xs">{{ product.desc.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() }}</span>
+-                                </td>
+-                                <td class="px-10 py-7 text-sm text-blue-400 font-bold">
+-                                    {{ new Intl.NumberFormat('hu-HU').format(product.price) }} Ft
+-                                </td>
+-                                <td class="px-10 py-7 text-right">
+-                                    <div class="flex justify-end gap-3">
+-                                        <NuxtLink :to="`/admin/termekek/edit/${product.id}`"
+-                                            class="px-4 py-2 bg-slate-800 hover:bg-blue-600/20 text-blue-400 rounded-xl transition text-xs font-bold border border-white/5">
+-                                            Szerkeszt</NuxtLink>
+-                                        <button @click="handleDelete(product.id)"
+-                                            class="px-4 py-2 bg-slate-800 hover:bg-red-600/20 text-red-400 rounded-xl transition text-xs font-bold border border-white/5">Töröl</button>
+-                                    </div>
+-                                </td>
+-                            </tr>
+-                        </tbody>
+-                    </table>
+-                    <div v-if="products?.length === 0" class="p-20 text-center text-slate-600 font-italic">
+-                        Nincs még feltöltött termék a rendszerben.
+-                    </div>
+-                </div>
+-            </div>
+-        </main>
+-    </div>
+-</template>
+-
+-<script setup>
+-definePageMeta({
+-    middleware: ["admin"],
+-    layout: false,
+-});
+-// Termékek lekérése az új API végpontról
+-const { data: products, refresh } = await useFetch('/api/products')
+-
+-const handleDelete = async (id) => {
+-    if (confirm('Végleg törlöd ezt a terméket?')) {
+-        try {
+-            const res = await $fetch('/api/products', {
+-                method: 'DELETE',
+-                body: { id }
+-            })
+-            if (res.success) {
+-                refresh()
+-            } else {
+-                alert("Hiba: " + res.error)
+-            }
+-        } catch (err) {
+-            alert("Hiba történt a törlés során.")
+-        }
+-    }
+-}
+-</script>
+\ No newline at end of file
+diff --git a/app/pages/admin/tipusok/index.vue b/app/pages/admin/tipusok/index.vue
+new file mode 100644
+index 0000000..12505e4
+--- /dev/null
++++ b/app/pages/admin/tipusok/index.vue
+@@ -0,0 +1,7 @@
++<script setup lang="ts">
++definePageMeta({ layout: 'admin', middleware: ['admin'] })
++</script>
++
++<template>
++  <AdminResource resource="categories" />
++</template>
+diff --git a/app/pages/kalkulacio.vue b/app/pages/kalkulacio.vue
+index c0a8379..8379561 100644
+--- a/app/pages/kalkulacio.vue
++++ b/app/pages/kalkulacio.vue
+@@ -47,7 +47,7 @@
+                         longevity programról, kezelésekról,tanulmányokról és kezeléseink beszámolói
+                     </p>
+                     <NuxtLink 
+-                        :to="`/szolgaltatas/${slugify(recommendedProduct?.title)}`"
++                        :to="`/szolgaltatas/${recommendedProduct?.slug}`"
+                         class="w-full flex flex-col bg-white rounded-lg lg:flex-row justify-between">
+                         <div class="flex flex-col lg:flex-row items-center lg:gap-6">
+                             <NuxtImg :src="recommendedProduct?.picUrl" :alt="recommendedProduct?.title"
+@@ -68,7 +68,7 @@
+                                 Ft</p>
+                             <NuxtLink
+                                 class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
+-                                :to="`/szolgaltatas/${slugify(recommendedProduct?.title)}`">
++                                :to="`/szolgaltatas/${recommendedProduct?.slug}`">
+                                 Bővebben
+                             </NuxtLink>
+                         </div>
+diff --git a/app/pages/szolgaltatas/[slug].vue b/app/pages/szolgaltatas/[slug].vue
+index b098e11..d257989 100644
+--- a/app/pages/szolgaltatas/[slug].vue
++++ b/app/pages/szolgaltatas/[slug].vue
+@@ -37,7 +37,7 @@
+                 Prémium állapotfelmérésre építünk, és személyre szabott kezelésekkel támogatjuk a céljaidat
+             </p>
+             <div class="grid grid-cols-1 gap-6">
+-                <NuxtLink v-for="product in product.related" :key="product.id" :to="`/szolgaltatas/${slugify(product.title)}`"
++                <NuxtLink v-for="product in product.related" :key="product.id" :to="`/szolgaltatas/${product.slug}`"
+                     class="w-full flex flex-col lg:flex-row justify-between">
+                     <div class="flex flex-col lg:flex-row items-center gap-6">
+                         <NuxtImg :src="product.picUrl" :alt="product.title"
+@@ -58,7 +58,7 @@
+                         </p>
+                         <NuxtLink
+                             class="flex-1 lg:flex-none text-center border-2 border-[#153131] rounded-lg px-8 py-4 dm-sans text-[#153131] font-medium hover:bg-[#F4F4F0]/10 transition-all"
+-                            :to="`/szolgaltatas/${slugify(product.title)}`">
++                            :to="`/szolgaltatas/${product.slug}`">
+                             Bővebben
+                         </NuxtLink>
+                     </div>
+diff --git a/app/utils/adminFields.ts b/app/utils/adminFields.ts
+new file mode 100644
+index 0000000..5680701
+--- /dev/null
++++ b/app/utils/adminFields.ts
+@@ -0,0 +1,393 @@
++/**
++ * Admin mezőleírók.
++ *
++ * Ugyanaz a szerkezet, amit a szerveroldali `server/utils/resources.ts` Zod
++ * sémái érvényesítenek. Egy generikus űrlap dolgozik belőlük, ezért öt entitás
++ * kezeléséhez nem kell öt szerkesztőt fenntartani – és egy új mező felvétele
++ * itt is, ott is egy sor.
++ *
++ * A kliens oldali ellenőrzés kényelmi funkció: az érdemi validálás mindig a
++ * szerveren történik, mert a kliens megkerülhető.
++ */
++
++export type FieldType =
++  | 'text'
++  | 'number'
++  | 'textarea'
++  | 'select'
++  | 'bool'
++  | 'multi'
++  | 'paragraphs'
++
++export interface Field {
++  key: string
++  type: FieldType
++  label: string
++  required?: boolean
++  hint?: string
++  min?: number
++  rows?: number
++  /** Rácsbeli szélesség: 2 = fél sor, 3 = harmad sor */
++  span?: 2 | 3
++  options?: { value: string | number | null; label: string }[]
++  /** Az opciók egy másik erőforrásból jönnek */
++  optionsFrom?: ResourceName
++  optionsLabel?: string
++}
++
++export type ResourceName =
++  | 'services'
++  | 'categories'
++  | 'practitioners'
++  | 'rooms'
++  | 'passes'
++
++export interface ResourceDef {
++  name: ResourceName
++  /** Az admin menüben és a címekben megjelenő nevek */
++  plural: string
++  singular: string
++  lead: string
++  /** Melyik mező a rekord megjelenítendő neve */
++  titleKey: 'title' | 'name'
++  columns: { label: string; get: (row: Row) => string }[]
++  fields: Field[]
++  blank: () => Row
++}
++
++export type Row = Record<string, unknown>
++
++const VAT = [
++  { value: 0, label: 'Áfamentes – egészségügyi szolgáltatás (TAM)' },
++  { value: 27, label: '27% – esztétikai szolgáltatás' },
++]
++
++export const Ft = (n: unknown) =>
++  new Intl.NumberFormat('hu-HU').format(Number(n) || 0) + ' Ft'
++
++const pill = (on: unknown, yes = 'igen', no = 'nem') => (on ? yes : no)
++const rel = (row: Row, key: string, idKey: string) =>
++  (((row[key] as Row[]) ?? []).length || 0) + ' db'
++
++export const slugify = (text: string) =>
++  text
++    .normalize('NFD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .toLowerCase()
++    .trim()
++    .replace(/\s+/g, '-')
++    .replace(/[^\w-]+/g, '')
++    .replace(/--+/g, '-')
++    .replace(/^-|-$/g, '')
++
++export const RESOURCES: Record<ResourceName, ResourceDef> = {
++  services: {
++    name: 'services',
++    plural: 'Kezelések',
++    singular: 'kezelés',
++    lead: 'Ár, áfa, hossz, pufferek és foglalhatóság. A puffer az az idő, amit a rendszer a foglalás körül lefoglal, de nem számláz.',
++    titleKey: 'title',
++    columns: [
++      { label: 'Kezelés', get: (r) => String(r.title) },
++      { label: 'Típus', get: (r) => ((r.category as Row | null)?.name as string) ?? '—' },
++      { label: 'Ár', get: (r) => Ft(r.priceGross) },
++      { label: 'Áfa', get: (r) => (r.vatRate ? '27%' : 'áfamentes') },
++      { label: 'Hossz', get: (r) => `${r.durationMin} p` },
++      {
++        label: 'Helyfoglalás',
++        get: (r) =>
++          `${Number(r.bufferBeforeMin) + Number(r.durationMin) + Number(r.bufferAfterMin)} p`,
++      },
++      { label: 'Szoba', get: (r) => rel(r, 'rooms', 'roomId') },
++      { label: 'Online', get: (r) => pill(r.isBookableOnline) },
++    ],
++    fields: [
++      { key: 'title', type: 'text', label: 'Megnevezés', required: true, span: 2 },
++      {
++        key: 'slug',
++        type: 'text',
++        label: 'URL-részlet (slug)',
++        span: 2,
++        hint: 'Ha üresen hagyod, a megnevezésből képződik. Módosításnál a régi címre 301-es átirányítás kell, különben elveszik a SEO.',
++      },
++      {
++        key: 'categoryId',
++        type: 'select',
++        label: 'Kezelés típus',
++        span: 2,
++        optionsFrom: 'categories',
++        optionsLabel: 'name',
++      },
++      {
++        key: 'gender',
++        type: 'select',
++        label: 'Kinek ajánlott',
++        span: 2,
++        options: ['Mindenki', 'Női', 'Férfi'].map((v) => ({ value: v, label: v })),
++      },
++      { key: 'priceGross', type: 'number', label: 'Bruttó ár (Ft)', required: true, min: 0, span: 2 },
++      {
++        key: 'vatRate',
++        type: 'select',
++        label: 'Áfa',
++        span: 2,
++        options: VAT,
++        hint: 'A magán egészségügyi szolgáltatás áfamentes (Áfa tv. 85. §), az esztétikai jellegű nem.',
++      },
++      { key: 'durationMin', type: 'number', label: 'Hossz (perc)', required: true, min: 5, span: 3 },
++      { key: 'bufferBeforeMin', type: 'number', label: 'Puffer előtte (perc)', min: 0, span: 3 },
++      { key: 'bufferAfterMin', type: 'number', label: 'Puffer utána (perc)', min: 0, span: 3 },
++      {
++        key: 'minLeadTimeHours',
++        type: 'number',
++        label: 'Legkorábban (óra)',
++        min: 0,
++        span: 2,
++        hint: 'Ennyivel előbb kell foglalni.',
++      },
++      { key: 'maxLeadTimeDays', type: 'number', label: 'Naptár nyitva (nap)', min: 1, span: 2 },
++      {
++        key: 'roomIds',
++        type: 'multi',
++        label: 'Mely szobákban végezhető',
++        optionsFrom: 'rooms',
++        optionsLabel: 'name',
++        hint: 'Ez adja a párhuzamos kapacitást. Szoba nélkül a rendszer csak a szakember idejét figyeli – infúziós kezelésnél ez általában hiba.',
++      },
++      {
++        key: 'practitionerIds',
++        type: 'multi',
++        label: 'Mely szakemberek végzik',
++        optionsFrom: 'practitioners',
++        optionsLabel: 'name',
++        hint: 'Szakember nélkül nem lesz foglalható idősáv.',
++      },
++      { key: 'lead', type: 'textarea', label: 'Rövid összefoglaló', rows: 2 },
++      { key: 'desc', type: 'textarea', label: 'Leírás', rows: 5, required: true },
++      { key: 'picUrl', type: 'text', label: 'Kép URL' },
++      { key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
++      { key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
++      { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
++      { key: 'isActive', type: 'bool', label: 'Aktív' },
++      { key: 'isBookableOnline', type: 'bool', label: 'Online foglalható' },
++    ],
++    blank: () => ({
++      title: '',
++      slug: '',
++      categoryId: null,
++      gender: 'Mindenki',
++      priceGross: 0,
++      vatRate: 0,
++      durationMin: 60,
++      bufferBeforeMin: 0,
++      bufferAfterMin: 10,
++      minLeadTimeHours: 24,
++      maxLeadTimeDays: 90,
++      lead: null,
++      desc: '',
++      picUrl: null,
++      metaTitle: null,
++      metaDescription: null,
++      sortOrder: 0,
++      isActive: true,
++      isBookableOnline: true,
++      roomIds: [],
++      practitionerIds: [],
++    }),
++  },
++
++  categories: {
++    name: 'categories',
++    plural: 'Kezelés típusok',
++    singular: 'típus',
++    lead: 'Ezek jelennek meg a nyitóoldalon. A részletes leírás a felugró ablak tartalma – bekezdésenként szerkeszthető.',
++    titleKey: 'name',
++    columns: [
++      { label: 'Típus', get: (r) => String(r.name) },
++      { label: 'Bekezdés a popupban', get: (r) => `${((r.longDesc as string[]) ?? []).length} db` },
++      { label: 'Aktív', get: (r) => pill(r.isActive) },
++    ],
++    fields: [
++      { key: 'name', type: 'text', label: 'Megnevezés', required: true, span: 2 },
++      { key: 'slug', type: 'text', label: 'URL-részlet (slug)', span: 2 },
++      { key: 'shortDesc', type: 'textarea', label: 'Rövid leírás (a kártyán)', rows: 3, required: true },
++      {
++        key: 'longDesc',
++        type: 'paragraphs',
++        label: 'Részletes leírás (felugró ablak)',
++        hint: 'Minden bekezdés külön mezőben. Ez jelenik meg, ha a látogató a kártyára kattint. Az üres bekezdéseket a szerver kiszűri.',
++      },
++      { key: 'iconUrl', type: 'text', label: 'Ikon URL' },
++      { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
++      { key: 'isActive', type: 'bool', label: 'Aktív' },
++    ],
++    blank: () => ({
++      name: '',
++      slug: '',
++      shortDesc: '',
++      longDesc: [''],
++      iconUrl: null,
++      sortOrder: 0,
++      isActive: true,
++    }),
++  },
++
++  practitioners: {
++    name: 'practitioners',
++    plural: 'Szakemberek',
++    singular: 'szakember',
++    lead: 'Ki dolgozik a rendelőben és melyik kezelést végzi. A beosztást a Beosztás menüpont alatt állítod.',
++    titleKey: 'name',
++    columns: [
++      { label: 'Név', get: (r) => String(r.name) },
++      { label: 'Szakterület', get: (r) => (r.category as string) ?? '—' },
++      { label: 'Kezelések', get: (r) => rel(r, 'services', 'serviceId') },
++      { label: 'Aktív', get: (r) => pill(r.isActive) },
++    ],
++    fields: [
++      { key: 'name', type: 'text', label: 'Név', required: true, span: 2 },
++      { key: 'titles', type: 'text', label: 'Titulus', span: 2, hint: 'pl. Dr., PhD' },
++      { key: 'slug', type: 'text', label: 'URL-részlet (slug)', span: 2 },
++      { key: 'category', type: 'text', label: 'Szakterület', span: 2 },
++      { key: 'desc', type: 'textarea', label: 'Bemutatkozás', rows: 5, required: true },
++      {
++        key: 'serviceIds',
++        type: 'multi',
++        label: 'Mely kezeléseket végzi',
++        optionsFrom: 'services',
++        optionsLabel: 'title',
++      },
++      { key: 'picUrl', type: 'text', label: 'Fotó URL' },
++      { key: 'metaTitle', type: 'text', label: 'SEO – címsor', span: 2 },
++      { key: 'metaDescription', type: 'textarea', label: 'SEO – leírás', rows: 2, span: 2 },
++      { key: 'isActive', type: 'bool', label: 'Aktív' },
++    ],
++    blank: () => ({
++      name: '',
++      titles: null,
++      slug: '',
++      category: null,
++      desc: '',
++      picUrl: null,
++      metaTitle: null,
++      metaDescription: null,
++      isActive: true,
++      serviceIds: [],
++    }),
++  },
++
++  rooms: {
++    name: 'rooms',
++    plural: 'Szobák',
++    singular: 'szoba',
++    lead: 'A szoba adja a párhuzamos kapacitást: ha minden alkalmas szoba foglalt, nincs több szabad idősáv – akkor sem, ha a szakember szabad.',
++    titleKey: 'name',
++    columns: [
++      { label: 'Szoba', get: (r) => String(r.name) },
++      { label: 'Kezelések', get: (r) => rel(r, 'services', 'serviceId') },
++      { label: 'Aktív', get: (r) => pill(r.isActive) },
++    ],
++    fields: [
++      { key: 'name', type: 'text', label: 'Megnevezés', required: true },
++      { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
++      { key: 'isActive', type: 'bool', label: 'Aktív' },
++    ],
++    blank: () => ({ name: '', sortOrder: 0, isActive: true }),
++  },
++
++  passes: {
++    name: 'passes',
++    plural: 'Bérletek',
++    singular: 'bérlet',
++    lead: 'Előre fizetett alkalomcsomagok. Foglaláskor a rendszer levon egy alkalmat, lemondáskor visszaírja.',
++    titleKey: 'title',
++    columns: [
++      { label: 'Bérlet', get: (r) => String(r.title) },
++      { label: 'Alkalom', get: (r) => (r.sessionCount ? `${r.sessionCount} db` : 'korlátlan') },
++      { label: 'Ár', get: (r) => Ft(r.priceGross) },
++      { label: 'Érvényesség', get: (r) => `${r.validityDays} nap` },
++      { label: 'Kezelések', get: (r) => rel(r, 'services', 'serviceId') },
++      { label: 'Aktív', get: (r) => pill(r.isActive) },
++    ],
++    fields: [
++      { key: 'title', type: 'text', label: 'Megnevezés', required: true, span: 2 },
++      { key: 'slug', type: 'text', label: 'URL-részlet (slug)', span: 2 },
++      { key: 'priceGross', type: 'number', label: 'Bruttó ár (Ft)', required: true, min: 0, span: 3 },
++      {
++        key: 'sessionCount',
++        type: 'number',
++        label: 'Alkalmak száma',
++        min: 1,
++        span: 3,
++        hint: 'Üresen hagyva korlátlan az érvényességi időn belül.',
++      },
++      { key: 'validityDays', type: 'number', label: 'Érvényesség (nap)', required: true, min: 1, span: 3 },
++      { key: 'vatRate', type: 'select', label: 'Áfa', options: VAT },
++      {
++        key: 'serviceIds',
++        type: 'multi',
++        label: 'Mely kezelésekre használható',
++        optionsFrom: 'services',
++        optionsLabel: 'title',
++        required: true,
++      },
++      { key: 'desc', type: 'textarea', label: 'Leírás', rows: 4, required: true },
++      { key: 'picUrl', type: 'text', label: 'Kép URL' },
++      { key: 'sortOrder', type: 'number', label: 'Sorrend', span: 2 },
++      { key: 'transferable', type: 'bool', label: 'Átruházható' },
++      { key: 'isActive', type: 'bool', label: 'Aktív' },
++    ],
++    blank: () => ({
++      title: '',
++      slug: '',
++      desc: '',
++      priceGross: 0,
++      vatRate: 0,
++      sessionCount: 5,
++      validityDays: 180,
++      transferable: false,
++      picUrl: null,
++      sortOrder: 0,
++      isActive: true,
++      serviceIds: [],
++    }),
++  },
++}
++
++/**
++ * Nem blokkoló figyelmeztetések. A mentést nem tiltják, csak jelzik, ha a
++ * beállítás együttesen értelmetlen – egyenként ugyanis mindegyik érvényes.
++ */
++export function softWarnings(name: ResourceName, d: Row): string[] {
++  const w: string[] = []
++  const n = (k: string) => Number(d[k] ?? 0)
++  const arr = (k: string) => (d[k] as unknown[]) ?? []
++
++  if (name === 'services') {
++    if (!arr('roomIds').length)
++      w.push('Nincs szoba hozzárendelve, tehát a párhuzamos kapacitás nincs korlátozva.')
++    if (!arr('practitionerIds').length)
++      w.push('Egyetlen szakember sincs hozzárendelve, így nem lesz foglalható idősáv.')
++    if (n('priceGross') === 0) w.push('Az ár 0 Ft.')
++    if (n('durationMin') > 240)
++      w.push(`${n('durationMin')} perc szokatlanul hosszú – elfér a nyitvatartásban?`)
++    // A címből tippelni, hogy esztétikai-e a kezelés, törékeny volt (a "Teszt"
++    // szó is beletalált egy /eszt/ mintába), ezért mindig jelezzük.
++    if (n('vatRate') === 27)
++      w.push(
++        '27%-os áfa van beállítva, tehát a rendszer nem egészségügyi szolgáltatásként számlázza. Ha ez egészségügyi kezelés, áfamentes (TAM) kell.',
++      )
++  }
++
++  if (name === 'practitioners' && !arr('serviceIds').length)
++    w.push('Nincs kezelés hozzárendelve, így nem lesz foglalható idősáv.')
++
++  if (name === 'passes') {
++    if (!arr('serviceIds').length)
++      w.push('Nincs kezelés hozzárendelve, így a bérlet nem használható fel.')
++    if (n('validityDays') < 30)
++      w.push('Rövid érvényesség. Előre fizetett csomagnál ez fogyasztóvédelmi vitát okozhat.')
++  }
++
++  return w
++}
+diff --git a/server/api/doctors.ts b/server/api/doctors.ts
+index c99c59c..69ebafc 100644
+--- a/server/api/doctors.ts
++++ b/server/api/doctors.ts
+@@ -1,108 +1,41 @@
+ import { prisma } from '~~/server/utils/prisma'
+-import { H3Event } from "h3";
+-import fs from "node:fs/promises";
+-import path from "node:path";
+-import sharp from "sharp";
+ 
+-const saveAsWebp = async (file: any) => {
+-  const uploadDir = path.join(process.cwd(), "public/uploads/doctors");
+-  await fs.mkdir(uploadDir, { recursive: true });
+-
+-  const fileName = `doc-${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
+-  const filePath = path.join(uploadDir, fileName);
+-
+-  await sharp(file.data)
+-    .resize(800, 800, { fit: 'cover', withoutEnlargement: true }) // Orvosoknak jó a négyzetes vágás
+-    .webp({ quality: 80 })
+-    .toFile(filePath);
+-
+-  // Relativ URL: igy dev/staging/eles kornyezetben is helyes
+-  return `/uploads/doctors/${fileName}`;
+-};
+-
+-const deletePhysicalFile = async (url: string | null) => {
+-  if (!url) return;
+-  try {
+-    const relativePath = url.replace(/^https?:\/\/[^\/]+/, "");
+-    const absolutePath = path.join(process.cwd(), "public", relativePath);
+-    await fs.unlink(absolutePath);
+-  } catch (err) { console.error("Fájl törlési hiba:", err); }
+-};
+-
+-export default defineEventHandler(async (event: H3Event) => {
+-  const method = event.method;
+-
+-  // --- GET: Listázás / Egyedi ---
+-  if (method === 'GET') {
+-    const query = getQuery(event);
+-    if (query.id) return await prisma.doctor.findUnique({ where: { id: Number(query.id) } });
+-    return await prisma.doctor.findMany({ orderBy: { name: 'asc' } });
+-  }
+-
+-  // Admin Check
+-  const session = await getUserSession(event);
+-  if (!session || session.user.role !== "ADMIN") throw createError({ statusCode: 401 });
+-
+-  // --- POST: LÉTREHOZÁS ---
+-  if (method === 'POST') {
+-    const formData = await readMultipartFormData(event);
+-    if (!formData) throw createError({ statusCode: 400 });
+-
+-    const getField = (name: string) => formData.find(f => f.name === name)?.data.toString('utf-8').trim();
+-    const file = formData.find(f => f.name === "picUrl");
+-
+-    let picUrl = null;
+-    if (file) picUrl = await saveAsWebp(file);
+-
+-    const doctor = await prisma.doctor.create({
+-      data: {
+-        name: getField("name") || "",
+-        category: getField("categ") || "",
+-        desc: getField("desc") || "",
+-        picUrl: picUrl
+-      }
+-    });
+-    return { success: true, doctor };
++/**
++ * KOMPATIBILITÁSI RÉTEG – /api/doctors
++ *
++ * A Doctor modellt a Practitioner váltotta fel (slug, titulus, kezelés-
++ * hozzárendelés, beosztás). A Doctors.vue és a Doctors2.vue viszont a régi
++ * alakra épül, ezért a mezőneveket megtartjuk.
++ *
++ * Csak OLVASÁS. Az írás az /api/admin/practitioners útvonalon történik.
++ */
++const select = {
++  id: true,
++  slug: true,
++  name: true,
++  titles: true,
++  category: true,
++  desc: true,
++  picUrl: true,
++} as const
++
++export default defineEventHandler(async (event) => {
++  if (event.method !== 'GET') {
++    throw createError({
++      statusCode: 405,
++      statusMessage: 'Az írás az /api/admin/practitioners útvonalon történik.',
++    })
+   }
+ 
+-  // --- PUT: SZERKESZTÉS ---
+-  if (method === 'PUT') {
+-    const formData = await readMultipartFormData(event);
+-    if (!formData) throw createError({ statusCode: 400 });
++  const query = getQuery(event)
++  const where = { archivedAt: null, isActive: true } as const
+ 
+-    const getField = (name: string) => formData.find(f => f.name === name)?.data.toString('utf-8').trim();
+-    const id = Number(getField("id"));
+-    const newFile = formData.find(f => f.name === "picUrl");
+-
+-    const oldDoctor = await prisma.doctor.findUnique({ where: { id } });
+-    if (!oldDoctor) return { error: "Nincs meg az orvos!" };
+-
+-    let finalPicUrl = oldDoctor.picUrl;
+-    if (newFile && newFile.data.length > 0) {
+-      await deletePhysicalFile(oldDoctor.picUrl);
+-      finalPicUrl = await saveAsWebp(newFile);
+-    }
+-
+-    const doctor = await prisma.doctor.update({
+-      where: { id },
+-      data: {
+-        name: getField("name"),
+-        category: getField("categ"),
+-        desc: getField("desc"),
+-        picUrl: finalPicUrl
+-      }
+-    });
+-    return { success: true, doctor };
++  if (query.id) {
++    return prisma.practitioner.findFirst({
++      where: { ...where, id: Number(query.id) },
++      select,
++    })
+   }
+ 
+-  // --- DELETE: TÖRLÉS ---
+-  if (method === 'DELETE') {
+-    const body = await readBody(event);
+-    const doctor = await prisma.doctor.findUnique({ where: { id: Number(body.id) } });
+-    if (doctor) {
+-      await deletePhysicalFile(doctor.picUrl);
+-      await prisma.doctor.delete({ where: { id: doctor.id } });
+-    }
+-    return { success: true };
+-  }
+-});
+\ No newline at end of file
++  return prisma.practitioner.findMany({ where, select, orderBy: { name: 'asc' } })
++})
+diff --git a/server/api/products.ts b/server/api/products.ts
+index 50937eb..15a7525 100644
+--- a/server/api/products.ts
++++ b/server/api/products.ts
+@@ -1,178 +1,124 @@
+ import { prisma } from '~~/server/utils/prisma'
+-import { H3Event } from "h3";
+-import fs from "node:fs/promises";
+-import path from "node:path";
+-import sharp from "sharp";
+ 
+-const slugify = (text: string) => {
+-  return text
+-    .toString()
+-    .normalize('NFD')
+-    .replace(/[\u0300-\u036f]/g, '')
+-    .toLowerCase()
+-    .trim()
+-    .replace(/\s+/g, '-')
+-    .replace(/[^\w-]+/g, '')
+-    .replace(/--+/g, '-');
++/**
++ * KOMPATIBILITÁSI RÉTEG – /api/products
++ *
++ * A Product modell megszűnt, a helyét a Service vette át (tárolt slug,
++ * kezelés-szintű áfa, pufferek, szoba- és szakember-kapcsolat). A publikus
++ * frontend viszont 12 helyen erre az endpointra és a régi mezőnevekre épül
++ * (Search.vue, szolgaltatas/[slug].vue, kalkulacio.vue, Longevity stb.).
++ *
++ * Ezért a válasz alakja szándékosan változatlan: a Service rekordokat a régi
++ * Product mezőnevekre képezzük le. Így az arculat és a komponensek egy sor
++ * módosítás nélkül működnek tovább.
++ *
++ * Csak OLVASÁS. Az írás az /api/admin/services útvonalon történik, Zod
++ * validálással, jogosultság-ellenőrzéssel és auditnaplóval – a korábbi
++ * verzióban ezek nem voltak meg.
++ */
++
++const select = {
++  id: true,
++  slug: true,
++  title: true,
++  lead: true,
++  desc: true,
++  gender: true,
++  priceGross: true,
++  vatRate: true,
++  durationMin: true,
++  picUrl: true,
++  sortOrder: true,
++  category: { select: { id: true, name: true, slug: true } },
++} as const
++
++/** Service -> a régi Product alak. */
++function toProduct(s: {
++  id: number
++  slug: string
++  title: string
++  lead: string | null
++  desc: string
++  gender: string
++  priceGross: number
++  vatRate: number
++  durationMin: number
++  picUrl: string | null
++  category: { id: number; name: string; slug: string } | null
++}) {
++  return {
++    id: s.id,
++    slug: s.slug,
++    title: s.title,
++    lead: s.lead,
++    desc: s.desc,
++    // A régi mezőnév a típus szöveges neve volt, nem azonosító
++    type: s.category?.name ?? null,
++    gender: s.gender,
++    price: s.priceGross,
++    picUrl: s.picUrl,
++    time: s.durationMin,
++    // Új, hasznos információk – a régi kliensek egyszerűen nem olvassák
++    vatRate: s.vatRate,
++    categorySlug: s.category?.slug ?? null,
++  }
+ }
+ 
+-// Segédfüggvény a kép mentéséhez (ugyanaz, mint a blognál)
+-const saveAsWebp = async (file: any) => {
+-  const uploadDir = path.join(process.cwd(), "public/uploads/products");
+-  await fs.mkdir(uploadDir, { recursive: true });
+-
+-  const fileName = `prod-${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
+-  const filePath = path.join(uploadDir, fileName);
+-
+-  await sharp(file.data)
+-    .resize(1000, null, { fit: 'inside', withoutEnlargement: true }) // Termékeknek elég az 1000px
+-    .webp({ quality: 80 })
+-    .toFile(filePath);
++const PUBLIC = { archivedAt: null, isActive: true } as const
+ 
+-  // Relativ URL: igy dev/staging/eles kornyezetben is helyes
+-  return `/uploads/products/${fileName}`;
+-};
+-
+-const deletePhysicalFile = async (fullUrl: string | null) => {
+-  if (!fullUrl) return;
++function loadOne(where: Record<string, unknown>) {
++  return prisma.service.findFirst({ where: { ...PUBLIC, ...where }, select })
++}
+ 
+-  try {
+-    // Kicseréljük a teljes URL-t relatív útvonalra
+-    // pl. "http://localhost:3000/uploads/kep.webp" -> "/uploads/kep.webp"
+-    const relativePath = fullUrl.replace(/^https?:\/\/[^\/]+/, "");
+-    
+-    const absolutePath = path.join(process.cwd(), "public", relativePath);
+-    
+-    await fs.unlink(absolutePath);
+-    console.log("Sikeres törlés:", absolutePath);
+-  } catch (err) {
+-    console.error("Fájl törlési hiba (lehet már nem létezik):", err);
++export default defineEventHandler(async (event) => {
++  if (event.method !== 'GET') {
++    throw createError({
++      statusCode: 405,
++      statusMessage: 'Az írás az /api/admin/services útvonalon történik.',
++    })
+   }
+-};
+ 
+-export default defineEventHandler(async (event: H3Event) => {
+-  const method = event.method;
+-
+-  // --- GET ÁG (Változatlan) ---
+-   if (method === 'GET') {
+-    const query = getQuery(event)
+-    
+-    // 1. Egyedi termék lekérése SLUG alapján
+-    if (query.slug) {
+-      const allProducts = await prisma.product.findMany();
+-      const foundProduct = allProducts.find(p => slugify(p.title) === query.slug);
+-      
+-      if (!foundProduct) {
+-        throw createError({ statusCode: 404, statusMessage: 'A termék nem található' });
+-      }
+-
+-      // Hasonló termékek lekérése (ugyanaz a típus, de nem önmaga)
+-      const relatedProducts = await prisma.product.findMany({
+-        where: {
+-          type: foundProduct.type,
+-          NOT: {
+-            id: foundProduct.id
+-          }
+-        },
+-        take: 4 // Opcionális: csak az első 4 hasonlót adjuk vissza
+-      });
+-
+-      // Visszaadjuk a terméket és a kapcsolódó listát is
+-      return {
+-        product: foundProduct,
+-        related: relatedProducts
+-      };
+-    }
+-
+-    // 2. Egyedi termék lekérése ID alapján (megtartva a régit is)
+-    if (query.id) {
+-      return await prisma.product.findUnique({
+-        where: { id: Number(query.id) }
+-      })
+-    }
++  const query = getQuery(event)
+ 
+-    // --- SZŰRÉS (Típus alapján) ---
+-    const whereClause: any = {}
+-    if (query.type && query.type !== 'Minden') {
+-      whereClause.type = String(query.type)
++  // 1. Egy kezelés slug alapján, a hasonlókkal együtt
++  if (query.slug) {
++    // A slug mostantól tárolt oszlop, nem a címből generált: a cím átírása
++    // többé nem szakítja el az URL-t és nem törli a SEO-t.
++    const found = await loadOne({ slug: String(query.slug) })
++    if (!found) {
++      throw createError({ statusCode: 404, statusMessage: 'A kezelés nem található' })
+     }
+ 
+-    return await prisma.product.findMany({
+-      where: whereClause,
+-      orderBy: { id: 'desc' }
++    const related = await prisma.service.findMany({
++      where: {
++        ...PUBLIC,
++        NOT: { id: found.id },
++        ...(found.category ? { categoryId: found.category.id } : {}),
++      },
++      select,
++      orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
++      take: 4,
+     })
+-  }
+-
+-  // Admin Check
+-  const session = await getUserSession(event);
+-  if (!session || session.user.role !== "ADMIN") throw createError({ statusCode: 401 });
+-
+-  // --- POST: LÉTREHOZÁS ---
+-  if (method === 'POST') {
+-    const formData = await readMultipartFormData(event);
+-    if (!formData) throw createError({ statusCode: 400 });
+ 
+-    const getField = (name: string) => formData.find(f => f.name === name)?.data.toString('utf-8').trim();
+-    const file = formData.find(f => f.name === "picUrl");
+-
+-    if (!file) return { error: "Kép kötelező!" };
+-
+-    const picUrl = await saveAsWebp(file);
+-    const product = await prisma.product.create({
+-      data: {
+-        title: getField("title") || "",
+-        desc: getField("desc") || "",
+-        type: getField("type") || "",
+-        price: Number(getField("price")) || 0,
+-        time: getField("time") || "",
+-        picUrl: picUrl,
+-        gender: getField("gender") || "",
+-      }
+-    });
+-    return { success: true, product };
++    return { product: toProduct(found), related: related.map(toProduct) }
+   }
+ 
+-  // --- PUT: SZERKESZTÉS ---
+-  if (method === 'PUT') {
+-    const formData = await readMultipartFormData(event);
+-    if (!formData) throw createError({ statusCode: 400 });
+-
+-    const getField = (name: string) => formData.find(f => f.name === name)?.data.toString('utf-8').trim();
+-    const id = Number(getField("id"));
+-    const newFile = formData.find(f => f.name === "picUrl");
+-
+-    const oldProduct = await prisma.product.findUnique({ where: { id } });
+-    if (!oldProduct) return { error: "Nincs meg a termék!" };
+-
+-    let finalPicUrl = oldProduct.picUrl;
+-    if (newFile && newFile.data.length > 0) {
+-      await deletePhysicalFile(oldProduct.picUrl);
+-      finalPicUrl = await saveAsWebp(newFile);
+-    }
+-
+-    const product = await prisma.product.update({
+-      where: { id },
+-      data: {
+-        title: getField("title"),
+-        desc: getField("desc"),
+-        type: getField("type"),
+-        price: Number(getField("price")),
+-        time: getField("time"),
+-        picUrl: finalPicUrl,
+-        gender: getField("gender") || "",
+-      }
+-    });
+-    return { success: true, product };
++  // 2. Egy kezelés id alapján
++  if (query.id) {
++    const one = await loadOne({ id: Number(query.id) })
++    return one ? toProduct(one) : null
+   }
+ 
+-  // --- DELETE: TÖRLÉS ---
+-  if (method === 'DELETE') {
+-    const body = await readBody(event);
+-    const product = await prisma.product.findUnique({ where: { id: Number(body.id) } });
+-    if (product) {
+-      await deletePhysicalFile(product.picUrl);
+-      await prisma.product.delete({ where: { id: product.id } });
+-    }
+-    return { success: true };
+-  }
+-});
+\ No newline at end of file
++  // 3. Lista, opcionálisan típus szerint szűrve (a szűrő a típus NEVÉT küldi)
++  const type = query.type ? String(query.type) : null
++  const rows = await prisma.service.findMany({
++    where: {
++      ...PUBLIC,
++      ...(type && type !== 'Minden' ? { category: { name: type } } : {}),
++    },
++    select,
++    orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
++  })
++
++  return rows.map(toProduct)
++})
+diff --git a/server/api/products/types.ts b/server/api/products/types.ts
+index 4d5d841..e045b4d 100644
+--- a/server/api/products/types.ts
++++ b/server/api/products/types.ts
+@@ -1,26 +1,26 @@
+ import { prisma } from '~~/server/utils/prisma'
+ 
+-export default defineEventHandler(async (event) => {
+-  try {
+-    // Lekérjük az egyedi típusokat, ahol a type nem null
+-    const types = await prisma.product.findMany({
++/**
++ * KOMPATIBILITÁSI RÉTEG – /api/products/types
++ *
++ * A régi verzió a Product.type szabad szöveges mező distinct értékeit adta
++ * vissza. Mostantól a ServiceCategory tábla a forrás, de a válasz továbbra is
++ * egyszerű string tömb, hogy a Search.vue szűrője változatlan maradhasson.
++ *
++ * Csak azokat a típusokat adjuk vissza, amelyekhez van legalább egy élő,
++ * aktív kezelés – különben a szűrőben üres kategóriák jelennének meg.
++ */
++export default defineCachedEventHandler(
++  async () => {
++    const rows = await prisma.serviceCategory.findMany({
+       where: {
+-        type: {
+-          not: null,
+-        },
++        isActive: true,
++        services: { some: { archivedAt: null, isActive: true } },
+       },
+-      select: {
+-        type: true,
+-      },
+-      distinct: ['type'],
+-    })
+-
+-    // Átalakítjuk egy egyszerű string tömbbé: ["típus1", "típus2"]
+-    return types.map(item => item.type)
+-  } catch (error) {
+-    throw createError({
+-      statusCode: 500,
+-      statusMessage: 'Nem sikerült lekérni a típusokat.',
++      select: { name: true },
++      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+     })
+-  }
+-})
+\ No newline at end of file
++    return rows.map((r) => r.name)
++  },
++  { maxAge: 120, name: 'product-types' },
++)
+-- 
+2.43.0
+

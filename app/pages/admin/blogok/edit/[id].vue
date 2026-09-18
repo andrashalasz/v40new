@@ -1,58 +1,51 @@
 <template>
-  <div class="w-full min-h-screen bg-[#F8F8F8] flex justify-center items-center px-4 py-6">
-    <div class="w-full max-w-2xl p-3">
-      <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">
-        Blog szerkesztése
-      </h1>
-
-      <form @submit.prevent="updateBlog" v-if="!loading">
-        <div class="mb-6">
-          <label class="block text-sm font-semibold text-gray-700 mb-2">Cím</label>
-          <input v-model="title" type="text" class="w-full border p-3 rounded-lg" required />
+  <div>
+    <div class="mb-5 flex items-center gap-3">
+      <NuxtLink to="/admin/blogok" class="text-[#667085] hover:text-[#101828] transition-colors">
+        <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+      </NuxtLink>
+      <h1 class="font-bold text-[24px] tracking-tight">Bejegyzés szerkesztése</h1>
+    </div>
+    <div class="max-w-3xl rounded-xl border border-[#ECEDEF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] p-6">
+      <form v-if="!loading" class="flex flex-col gap-5" @submit.prevent="updateBlog">
+        <div>
+          <label class="block text-[13px] font-semibold text-[#344054] mb-1.5">Cím</label>
+          <input v-model="title" type="text" required
+            class="w-full rounded-lg border border-[#D0D5DD] px-3 py-2.5 text-sm outline-none focus:border-[#153131] focus:ring-2 focus:ring-[#153131]/15 transition-shadow" />
         </div>
-
-        <div class="mb-6">
-          <label class="block text-sm font-semibold text-gray-700 mb-2">Bekezdés (Lead)</label>
-          <input v-model="lead" type="text" class="w-full border p-3 rounded-lg" required />
+        <div>
+          <label class="block text-[13px] font-semibold text-[#344054] mb-1.5">Bevezető</label>
+          <input v-model="lead" type="text" required
+            class="w-full rounded-lg border border-[#D0D5DD] px-3 py-2.5 text-sm outline-none focus:border-[#153131] focus:ring-2 focus:ring-[#153131]/15 transition-shadow" />
         </div>
-
-        <div class="mb-6">
-          <label class="block text-sm font-semibold text-gray-700 mb-2">Leírás</label>
+        <div>
+          <label class="block text-[13px] font-semibold text-[#344054] mb-1.5">Tartalom</label>
           <TipTap v-model="description" />
         </div>
-
-        <div class="mb-6">
-          <label class="block text-sm font-semibold text-gray-700 mb-2">
-            Borítókép (Hagyd üresen, ha nem akarod cserélni)
-          </label>
-          <input type="file" @change="handleFileChange" accept="image/*" class="w-full border p-2 rounded-lg" />
-
-          <div class="mt-4">
-            <p class="text-xs text-gray-500 mb-1">Jelenlegi/Új kép:</p>
-            <img v-if="previewUrl || currentPicUrl" :src="previewUrl || currentPicUrl"
-              class="w-full max-h-64 object-cover rounded-lg border" />
+        <div>
+          <label class="block text-[13px] font-semibold text-[#344054] mb-1.5">Borítókép (üresen hagyva marad a régi)</label>
+          <input type="file" @change="handleFileChange" accept="image/*" class="text-sm" />
+          <div v-if="previewUrl || currentPicUrl" class="mt-3">
+            <img :src="previewUrl || currentPicUrl" class="w-full max-h-64 object-cover rounded-lg border border-[#ECEDEF]" />
           </div>
         </div>
-
-        <div class="flex gap-4">
-          <button type="submit" :disabled="isSubmitting"
-            class="flex-1 bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400">
-            {{ isSubmitting ? 'Mentés...' : 'Változtatások mentése' }}
+        <div class="flex justify-end gap-2 border-t border-[#ECEDEF] pt-4">
+          <button type="button" class="rounded-lg border border-[#D9DCE1] bg-white px-4 py-2.5 text-sm font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors" @click="router.push('/admin/blogok')">
+            Mégsem
           </button>
-          <button type="button" @click="router.push('/admin/blogok')"
-            class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-100">
-            Mégse
+          <button type="submit" :disabled="isSubmitting"
+            class="rounded-lg bg-[#153131] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2525] disabled:opacity-40 transition-colors">
+            {{ isSubmitting ? 'Mentés…' : 'Mentés' }}
           </button>
         </div>
       </form>
-
-      <div v-else class="text-center py-10">Betöltés...</div>
+      <div v-else class="text-center py-10 text-[#667085] text-sm">Betöltés…</div>
     </div>
   </div>
 </template>
 
 <script setup>
-definePageMeta({ middleware: ["admin"] })
+definePageMeta({ layout: "admin", middleware: ["admin"] })
 
 const route = useRoute();
 const router = useRouter();

@@ -1,0 +1,1345 @@
+From 1e7dda51f6eb3a9b9cf878ff4db2220423439d7c Mon Sep 17 00:00:00 2001
+From: V40 Vital <dev@v40vital.hu>
+Date: Thu, 13 Aug 2026 14:54:11 +0000
+Subject: [PATCH] =?UTF-8?q?Val=C3=B3di=20foglal=C3=A1si=20folyamat=20a=20S?=
+ =?UTF-8?q?wazy=20widget=20helyett?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Eddig a backend készen volt, de a felület nem: az /idopont oldalon máig egy
+külső Swazy widget volt beágyazva, és nem létezett /foglalas, /berletek vagy
+/fiok oldal. Amit a prototípusban láttunk, az prototípus maradt. Ez most
+megépült.
+
+/foglalas/[slug] – háromlépéses folyamat
+- szakember, nap, idősáv: a /api/availability adja, tehát a tesztelt motorból
+- a kliens SOHA nem dönt arról, hogy egy idősáv szabad-e; csak azt kínálja fel,
+  amit a szerver visszaadott, és a szerver a létrehozáskor újra ellenőrzi
+- ha az idősáv közben elkelt, a hiba után újratölti a naptárat és visszalép az
+  első lépésre, hogy ne kínálja fel ismét ugyanazt
+- az arculat a publikus oldal tokenjeivel, nem az egyszerűbb adminéval
+
+Háromféle rendezés a hold endpointban
+- ON_SITE és PASS -> azonnal CONFIRMED
+- ONLINE_CARD -> HOLD, a fizetésre várva (a Barion élesítéséig a felület
+  jelzi, hogy a kártyás fizetés még nem elérhető)
+- bérletnél az alkalom levonása a TRANZAKCIÓN BELÜL történik, különben két
+  párhuzamos foglalás levonhatná ugyanazt a maradék alkalmat. A leghamarabb
+  lejáró bérletet használjuk fel először, hogy az ügyfél ne veszítsen alkalmat.
+
+Új oldalak és endpointok
+- /berletek + GET /api/passes (listaár és megtakarítás számítással)
+- /fiok + GET /api/me: közelgő és korábbi foglalások, bérletek maradék
+  alkalmakkal, lemondás. A szűrés a session felhasználójára történik, nem
+  kliens által küldött azonosítóra.
+- app/middleware/auth.ts: belépés után visszairányít az eredeti útvonalra
+
+A Swazy eltávolítása
+A külső script eddig MINDEN oldalletöltésnél betöltődött, akkor is, ha senki
+nem foglalt – vagyis egy harmadik fél minden látogatót látott, egészségügyi
+oldalon. A script, a custom element szabály és a beágyazások eltűntek.
+
+FIGYELEM: az ÁSZF, a GYIK és az Adatkezelési tájékoztató továbbra is a Swazy-t
+nevezi meg az időpontfoglalás rendszerének és adatfeldolgozójának. Ez most már
+tényszerűen valótlan, és adatfeldolgozói felsorolásnál GDPR-szempontból nem
+hagyható így. A szövegek javítása jogi döntés, ezért nem írtam át őket.
+---
+ ROADMAP.md                           |   7 +
+ app/components/Header.vue            |   6 +
+ app/middleware/auth.ts               |   5 +
+ app/pages/berletek.vue               |  98 ++++++
+ app/pages/fiok.vue                   | 158 +++++++++
+ app/pages/foglalas/[slug].vue        | 481 +++++++++++++++++++++++++++
+ app/pages/idopont.vue                | 114 +++++--
+ app/pages/szolgaltatas/[slug].vue    |  19 +-
+ nuxt.config.ts                       |  15 +-
+ server/api/appointments/hold.post.ts |  87 ++++-
+ server/api/me/index.get.ts           |  69 ++++
+ server/api/passes.get.ts             |  40 +++
+ 12 files changed, 1044 insertions(+), 55 deletions(-)
+ create mode 100644 app/middleware/auth.ts
+ create mode 100644 app/pages/berletek.vue
+ create mode 100644 app/pages/fiok.vue
+ create mode 100644 app/pages/foglalas/[slug].vue
+ create mode 100644 server/api/me/index.get.ts
+ create mode 100644 server/api/passes.get.ts
+
+diff --git a/ROADMAP.md b/ROADMAP.md
+index 3388539..4941aee 100644
+--- a/ROADMAP.md
++++ b/ROADMAP.md
+@@ -50,8 +50,15 @@ A tervezett felület a `docs/prototipus-admin-beosztas.html`-ben látható.
+ - [x] `POST /api/appointments/cancel` – zárolás feloldása, bérlet-alkalom
+       visszaírása `reversedAt`-tel
+ - [x] `POST /api/cron/release-holds` – lejárt zárolások felszabadítása
++- [x] Foglalási folyamat felület: /foglalas/[slug], háromlépéses, a valódi
++      /api/availability és /api/appointments/hold endpointokra kötve
++- [x] Az /idopont oldalról eltűnt a külső Swazy widget, helyette kezelésválasztás
++- [x] /berletek publikus katalógus, /fiok ügyfélfiók lemondással
++- [x] Háromféle rendezés: helyszíni, bérletből (tranzakción belüli levonással),
++      kártya (a Barion élesítéséig fenntartott zárolással)
+ - [ ] Áttétel (reschedule)
+ - [ ] E-mail visszaigazolás bekötése
++- [ ] Bérlet online megvásárlása (a Barion után)
+ 
+ ## 5. Ügyfélfiók
+ - [ ] Regisztráció + e-mail megerősítés
+diff --git a/app/components/Header.vue b/app/components/Header.vue
+index 00e3595..ada3a6e 100644
+--- a/app/components/Header.vue
++++ b/app/components/Header.vue
+@@ -6,12 +6,14 @@
+ 
+         <div class="hidden lg:flex items-center gap-10">
+             <NuxtLink to="/kezelesek" class="dm-sans text-[#171008] text-[16px]">Kezelések</NuxtLink>
++            <NuxtLink to="/berletek" class="dm-sans text-[#171008] text-[16px]">Bérletek</NuxtLink>
+             <NuxtLink to="/longevity" class="dm-sans text-[#171008] text-[16px]">Longevity</NuxtLink>
+             <NuxtLink to="/kalkulacio" class="dm-sans text-[#171008] text-[16px]">Navigátor</NuxtLink>
+             <NuxtLink to="/rolunk" class="dm-sans text-[#171008] text-[16px]">Rólunk</NuxtLink>
+             <NuxtLink to="/gyik" class="dm-sans text-[#171008] text-[16px]">GYIK</NuxtLink>
+             <NuxtLink to="/blogok" class="dm-sans text-[#171008] text-[16px]">Blog</NuxtLink>
+             <NuxtLink to="/kapcsolat" class="dm-sans text-[#171008] text-[16px]">Kapcsolat</NuxtLink>
++            <NuxtLink to="/fiok" class="dm-sans text-[#171008] text-[16px]">Fiókom</NuxtLink>
+             
+         </div>
+ 
+@@ -29,6 +31,10 @@
+                 class="absolute top-full left-0 w-full bg-white border-t border-gray-100 shadow-xl lg:hidden flex flex-col p-6 gap-6">
+                 <NuxtLink @click="isMenuOpen = false" to="/kezelesek"
+                     class="dm-sans text-[#171008] text-[18px] font-medium">Szolgáltatások</NuxtLink>
++                <NuxtLink @click="isMenuOpen = false" to="/berletek"
++                    class="dm-sans text-[#171008] text-[18px] font-medium">Bérletek</NuxtLink>
++                <NuxtLink @click="isMenuOpen = false" to="/fiok"
++                    class="dm-sans text-[#171008] text-[18px] font-medium">Fiókom</NuxtLink>
+                 <NuxtLink @click="isMenuOpen = false" to="/kalkulacio"
+                     class="dm-sans text-[#171008] text-[18px] font-medium">Navigátor</NuxtLink>
+                 <NuxtLink @click="isMenuOpen = false" to="/blogok"
+diff --git a/app/middleware/auth.ts b/app/middleware/auth.ts
+new file mode 100644
+index 0000000..068eecd
+--- /dev/null
++++ b/app/middleware/auth.ts
+@@ -0,0 +1,5 @@
++export default defineNuxtRouteMiddleware((to) => {
++  const { loggedIn } = useUserSession()
++  // A visszatérési útvonalat átadjuk, hogy belépés után ide jöjjön vissza.
++  if (!loggedIn.value) return navigateTo(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
++})
+diff --git a/app/pages/berletek.vue b/app/pages/berletek.vue
+new file mode 100644
+index 0000000..60839bd
+--- /dev/null
++++ b/app/pages/berletek.vue
+@@ -0,0 +1,98 @@
++<script setup lang="ts">
++interface Pass {
++  id: number
++  slug: string
++  title: string
++  desc: string
++  priceGross: number
++  vatRate: number
++  sessionCount: number | null
++  validityDays: number
++  transferable: boolean
++  listPriceGross: number
++  savingGross: number
++  services: { title: string; slug: string }[]
++}
++
++const { data: passes } = await useFetch<Pass[]>('/api/passes')
++const Ft = (n: number) => new Intl.NumberFormat('hu-HU').format(n) + ' Ft'
++
++useSeoMeta({
++  title: 'Bérletek | V40 Vital',
++  description:
++    'Több alkalomra előre, kedvezőbb áron. Bérleteink érvényessége és felhasználási feltételei.',
++})
++</script>
++
++<template>
++  <Header />
++
++  <div class="relative w-full pb-10 pt-12 lg:pt-16 lg:pb-14 lg:px-[100px] bg-[#E5F7F9]">
++    <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
++      <h1 class="text-[32px] lg:text-[56px] dm-sans font-bold mb-3 text-center text-[#171008]">Bérletek</h1>
++      <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">
++        Több alkalomra előre – kedvezőbb áron, kötött érvényességgel.
++      </p>
++    </div>
++  </div>
++
++  <div class="w-full bg-[#F4F4F0] py-10 lg:py-14 lg:px-[100px]">
++    <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
++      <div v-for="p in passes" :key="p.id" class="bg-white rounded-lg p-6 lg:p-8 mb-4">
++        <div class="flex flex-col lg:flex-row lg:justify-between gap-5">
++          <div>
++            <h2 class="dm-sans font-bold text-[22px] mb-2">{{ p.title }}</h2>
++            <p class="dm-sans text-[#00000080] text-[15px] mb-3">{{ p.desc }}</p>
++            <p class="dm-sans text-[15px] mb-3">
++              Felhasználható:
++              <span v-for="(s, i) in p.services" :key="s.slug">
++                <NuxtLink :to="`/szolgaltatas/${s.slug}`" class="underline">{{ s.title }}</NuxtLink>{{ i < p.services.length - 1 ? ', ' : '' }}
++              </span>
++            </p>
++            <div class="flex flex-wrap gap-2">
++              <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[14px]">
++                {{ p.sessionCount ? `${p.sessionCount} alkalom` : 'korlátlan alkalom' }}
++              </span>
++              <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[14px]">
++                {{ p.validityDays }} nap érvényesség
++              </span>
++              <span v-if="p.savingGross > 0" class="bg-[#EFF7F2] text-[#1F6B4A] rounded-sm px-2 py-1 text-[14px] font-bold">
++                {{ Ft(p.savingGross) }} megtakarítás
++              </span>
++            </div>
++          </div>
++
++          <div class="lg:text-right shrink-0">
++            <p class="dm-sans font-bold text-[28px]">{{ Ft(p.priceGross) }}</p>
++            <p v-if="p.savingGross > 0" class="text-[#00000080] text-[14px] line-through">
++              {{ Ft(p.listPriceGross) }}
++            </p>
++            <p class="text-[#00000080] text-[13px] mt-1">
++              {{ p.vatRate ? 'bruttó, 27% áfa' : 'áfamentes egészségügyi szolgáltatás' }}
++            </p>
++            <!--
++              A vásárlás bankkártyás fizetést igényel, ami még nincs élesítve.
++              Amíg nincs, nem teszünk ide gombot, ami hibára futna – helyette a
++              kapcsolatfelvételre irányítunk.
++            -->
++            <NuxtLink
++              to="/kapcsolat"
++              class="inline-block mt-4 border-2 border-[#153131] text-[#153131] rounded-lg px-8 py-[14px] font-medium dm-sans"
++            >
++              Érdeklődöm
++            </NuxtLink>
++          </div>
++        </div>
++      </div>
++
++      <div class="bg-[#E5F7F9] text-[#153131] rounded-lg p-5 max-w-[760px] text-[14px]">
++        A bérlet a vásárlástól számított érvényességi időn belül használható fel.
++        A fel nem használt alkalmakról és az elállási jogról az ÁSZF rendelkezik.
++        Online vásárlás a bankkártyás fizetés élesítése után lesz elérhető – addig
++        a bérlet a rendelőben vásárolható meg.
++      </div>
++    </div>
++  </div>
++
++  <WFooter />
++</template>
+diff --git a/app/pages/fiok.vue b/app/pages/fiok.vue
+new file mode 100644
+index 0000000..b940ced
+--- /dev/null
++++ b/app/pages/fiok.vue
+@@ -0,0 +1,158 @@
++<script setup lang="ts">
++definePageMeta({ middleware: ['auth'] })
++
++interface Appt {
++  publicRef: string
++  startsAt: string
++  status: string
++  settlement: string
++  priceGross: number
++  service: { title: string; slug: string; durationMin: number }
++  practitioner: { name: string }
++  room: { name: string } | null
++}
++interface Pass {
++  code: string
++  sessionsTotal: number | null
++  sessionsRemaining: number | null
++  validUntil: string
++  status: string
++  passTemplate: { title: string }
++  services: { title: string; slug: string }[]
++}
++
++const { data, refresh } = await useFetch<{
++  profile: { email: string; firstName: string | null; lastName: string | null; phone: string | null } | null
++  upcoming: Appt[]
++  past: Appt[]
++  passes: Pass[]
++}>('/api/me')
++
++const busy = ref('')
++const msg = ref('')
++
++async function cancel(ref_: string) {
++  busy.value = ref_
++  msg.value = ''
++  try {
++    const res = await $fetch<{ message: string }>('/api/appointments/cancel', {
++      method: 'POST',
++      body: { publicRef: ref_ },
++    })
++    msg.value = res.message
++    await refresh()
++  } catch (e: unknown) {
++    msg.value = (e as { data?: { statusMessage?: string } }).data?.statusMessage ?? 'A lemondás nem sikerült.'
++  } finally {
++    busy.value = ''
++  }
++}
++
++const Ft = (n: number) => new Intl.NumberFormat('hu-HU').format(n) + ' Ft'
++const dt = (iso: string) =>
++  new Intl.DateTimeFormat('hu-HU', {
++    year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
++    hourCycle: 'h23', timeZone: 'Europe/Budapest',
++  }).format(new Date(iso))
++const d = (iso: string) =>
++  new Intl.DateTimeFormat('hu-HU', { dateStyle: 'medium', timeZone: 'Europe/Budapest' }).format(new Date(iso))
++
++const STATUS: Record<string, string> = {
++  HOLD: 'fizetésre vár',
++  PENDING_PAYMENT: 'fizetésre vár',
++  CONFIRMED: 'megerősítve',
++  COMPLETED: 'megtörtént',
++  NO_SHOW: 'nem jelent meg',
++}
++
++useSeoMeta({ title: 'Fiókom | V40 Vital', robots: 'noindex' })
++</script>
++
++<template>
++  <Header />
++
++  <div class="relative w-full pb-10 pt-12 lg:pt-16 lg:pb-14 lg:px-[100px] bg-[#E5F7F9]">
++    <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
++      <h1 class="text-[32px] lg:text-[56px] dm-sans font-bold mb-3 text-center text-[#171008]">Fiókom</h1>
++      <p class="dm-sans text-[#171008] text-[18px] text-center">
++        {{ [data?.profile?.lastName, data?.profile?.firstName].filter(Boolean).join(' ') || data?.profile?.email }}
++      </p>
++    </div>
++  </div>
++
++  <div class="w-full bg-[#F4F4F0] py-10 lg:py-14 lg:px-[100px]">
++    <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
++      <p v-if="msg" class="mb-5 bg-[#E5F7F9] text-[#153131] rounded-lg p-4 text-[14px] font-semibold">{{ msg }}</p>
++
++      <h2 class="dm-sans font-bold text-[24px] mb-3">Bérleteim</h2>
++      <div v-if="data?.passes?.length" class="mb-9">
++        <div v-for="p in data.passes" :key="p.code" class="bg-white rounded-lg p-5 lg:p-6 mb-3">
++          <div class="flex flex-col lg:flex-row lg:justify-between gap-3">
++            <div>
++              <h3 class="dm-sans font-bold text-[19px]">{{ p.passTemplate.title }}</h3>
++              <p class="text-[#00000080] text-[14px]">
++                Kód: <span class="font-mono">{{ p.code }}</span> · érvényes {{ d(p.validUntil) }}-ig
++              </p>
++              <p class="text-[14px] mt-1.5">
++                {{ p.services.map((s) => s.title).join(', ') }}
++              </p>
++            </div>
++            <div class="lg:text-right shrink-0">
++              <p class="dm-sans font-bold text-[26px]">
++                {{ p.sessionsRemaining ?? '∞' }}<span v-if="p.sessionsTotal" class="text-[#00000080]">/{{ p.sessionsTotal }}</span>
++              </p>
++              <p class="text-[#00000080] text-[13px]">alkalom</p>
++            </div>
++          </div>
++          <div v-if="p.sessionsTotal" class="h-[7px] bg-[#E4E4DE] rounded-full overflow-hidden mt-3">
++            <i class="block h-full bg-[#153131]" :style="{ width: `${((p.sessionsRemaining ?? 0) / p.sessionsTotal) * 100}%` }" />
++          </div>
++        </div>
++      </div>
++      <div v-else class="bg-white rounded-lg p-5 text-[#00000080] mb-9">
++        Nincs aktív bérleted. <NuxtLink to="/berletek" class="underline text-[#153131]">Bérleteink</NuxtLink>
++      </div>
++
++      <h2 class="dm-sans font-bold text-[24px] mb-3">Közelgő foglalásaim</h2>
++      <div v-if="data?.upcoming?.length">
++        <div v-for="a in data.upcoming" :key="a.publicRef" class="bg-white rounded-lg p-5 lg:p-6 mb-3">
++          <div class="flex flex-col lg:flex-row lg:justify-between gap-3">
++            <div>
++              <h3 class="dm-sans font-bold text-[19px]">{{ a.service.title }}</h3>
++              <p class="text-[#00000080] text-[14px]">{{ dt(a.startsAt) }} · {{ a.practitioner.name }}</p>
++              <div class="flex flex-wrap gap-2 mt-2">
++                <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[13px] font-mono">{{ a.publicRef }}</span>
++                <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[13px]">{{ STATUS[a.status] ?? a.status }}</span>
++                <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[13px]">
++                  {{ a.settlement === 'PASS' ? 'bérletből' : a.settlement === 'ON_SITE' ? 'helyszínen fizet' : 'kártya' }}
++                </span>
++              </div>
++            </div>
++            <div class="shrink-0">
++              <button
++                class="border-2 border-[#153131] text-[#153131] rounded-lg px-6 py-3 font-medium dm-sans disabled:opacity-40"
++                :disabled="busy === a.publicRef"
++                @click="cancel(a.publicRef)"
++              >
++                {{ busy === a.publicRef ? 'Lemondás…' : 'Lemondás' }}
++              </button>
++            </div>
++          </div>
++        </div>
++      </div>
++      <div v-else class="bg-white rounded-lg p-5 text-[#00000080]">
++        Nincs közelgő foglalásod. <NuxtLink to="/kezelesek" class="underline text-[#153131]">Kezeléseink</NuxtLink>
++      </div>
++
++      <template v-if="data?.past?.length">
++        <h2 class="dm-sans font-bold text-[24px] mt-9 mb-3">Korábbi foglalásaim</h2>
++        <div v-for="a in data.past" :key="a.publicRef" class="bg-white rounded-lg p-4 mb-2 flex flex-wrap justify-between gap-3 opacity-70">
++          <span class="text-[15px]"><b>{{ a.service.title }}</b> · {{ dt(a.startsAt) }}</span>
++          <span class="text-[14px] text-[#00000080]">{{ Ft(a.priceGross) }}</span>
++        </div>
++      </template>
++    </div>
++  </div>
++
++  <WFooter />
++</template>
+diff --git a/app/pages/foglalas/[slug].vue b/app/pages/foglalas/[slug].vue
+new file mode 100644
+index 0000000..601cb83
+--- /dev/null
++++ b/app/pages/foglalas/[slug].vue
+@@ -0,0 +1,481 @@
++<script setup lang="ts">
++/**
++ * Foglalási folyamat.
++ *
++ * Háromlépéses: időpont -> adatok -> megerősítés. Az idősávokat a
++ * /api/availability adja (a tesztelt motorból), a foglalást a
++ * /api/appointments/hold hozza létre tranzakciós zárolással.
++ *
++ * A kliens SOHA nem dönt arról, hogy egy idősáv szabad-e: csak azt kínálja fel,
++ * amit a szerver visszaadott, és a szerver a létrehozáskor újra ellenőrzi.
++ */
++const route = useRoute()
++const slug = computed(() => String(route.params.slug))
++
++const { data: svcData, error: svcError } = await useFetch<{
++  product: {
++    id: number
++    slug: string
++    title: string
++    desc: string
++    type: string | null
++    price: number
++    time: number
++    vatRate: number
++  }
++}>(() => `/api/products?slug=${slug.value}`)
++
++const service = computed(() => svcData.value?.product)
++
++// --- állapot ---------------------------------------------------------------
++const step = ref<1 | 2 | 3>(1)
++const practitionerId = ref<number | null>(null)
++const dayOffset = ref<number | null>(null)
++const chosenStart = ref<string | null>(null)
++const settlement = ref<'ONLINE_CARD' | 'PASS' | 'ON_SITE' | null>(null)
++const terms = ref(false)
++const submitting = ref(false)
++const errorMsg = ref('')
++const result = ref<{
++  publicRef: string
++  startsAt: string
++  settlement: string
++  needsPayment: boolean
++} | null>(null)
++
++const form = reactive({ lastName: '', firstName: '', email: '', phone: '', note: '' })
++
++const { user } = useUserSession()
++
++// --- naptár ----------------------------------------------------------------
++const DAYS = ['Vas', 'Hét', 'Ke', 'Sze', 'Csü', 'Pén', 'Szo']
++const MONTHS = ['jan', 'feb', 'márc', 'ápr', 'máj', 'jún', 'júl', 'aug', 'szep', 'okt', 'nov', 'dec']
++const HORIZON = 21
++
++const dayList = computed(() =>
++  Array.from({ length: HORIZON }, (_, i) => {
++    const d = new Date()
++    d.setHours(0, 0, 0, 0)
++    d.setDate(d.getDate() + i)
++    return { offset: i, date: d, dow: DAYS[d.getDay()], num: d.getDate(), mon: MONTHS[d.getMonth()] }
++  }),
++)
++
++const range = computed(() => {
++  const from = new Date()
++  from.setHours(0, 0, 0, 0)
++  const to = new Date(from)
++  to.setDate(to.getDate() + HORIZON)
++  return { from: from.toISOString(), to: to.toISOString() }
++})
++
++interface Slot { start: string; end: string; roomId: number | null }
++interface Avail {
++  holdMinutes: number
++  priceGross: number
++  practitioners: { practitionerId: number; practitionerName: string; slots: Slot[] }[]
++  reason?: string
++}
++
++// Egyetlen lekérés: korábban tévedésből két külön useFetch hívta ugyanezt az
++// endpointot, ami dupla kérést és két, egymástól független állapotot adott.
++const {
++  data: avail,
++  status: availStatus,
++  refresh: refreshAvail,
++} = await useFetch<Avail>('/api/availability', {
++  key: 'availability',
++  query: computed(() => ({
++    serviceId: service.value?.id,
++    from: range.value.from,
++    to: range.value.to,
++  })),
++  // A kezelés id-je kell hozzá, ezért csak akkor indul, ha az már megvan
++  immediate: Boolean(service.value),
++  watch: [service],
++})
++
++const practitioners = computed(() => avail.value?.practitioners ?? [])
++
++/** Egy szakember adott napi, még szabad idősávjai. */
++function slotsFor(pid: number, offset: number): Slot[] {
++  const p = practitioners.value.find((x) => x.practitionerId === pid)
++  if (!p) return []
++  const d = dayList.value.find((x) => x.offset === offset)!.date
++  const next = new Date(d)
++  next.setDate(next.getDate() + 1)
++  return p.slots.filter((s) => {
++    const t = new Date(s.start).getTime()
++    return t >= d.getTime() && t < next.getTime()
++  })
++}
++
++const hasAnySlot = (offset: number) =>
++  practitionerId.value ? slotsFor(practitionerId.value, offset).length > 0 : false
++
++const daySlots = computed(() =>
++  practitionerId.value !== null && dayOffset.value !== null
++    ? slotsFor(practitionerId.value, dayOffset.value)
++    : [],
++)
++
++const hhmm = (iso: string) =>
++  new Intl.DateTimeFormat('hu-HU', {
++    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Europe/Budapest',
++  }).format(new Date(iso))
++
++const longDate = (iso: string) =>
++  new Intl.DateTimeFormat('hu-HU', {
++    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: 'Europe/Budapest',
++  }).format(new Date(iso))
++
++const Ft = (n: number) => new Intl.NumberFormat('hu-HU').format(n) + ' Ft'
++
++// --- lépésváltás -----------------------------------------------------------
++function pickPractitioner(id: number) {
++  practitionerId.value = id
++  dayOffset.value = null
++  chosenStart.value = null
++}
++function pickDay(o: number) {
++  dayOffset.value = o
++  chosenStart.value = null
++}
++
++function toStep2() {
++  if (!chosenStart.value) return
++  errorMsg.value = ''
++  step.value = 2
++}
++
++function toStep3() {
++  errorMsg.value = ''
++  if (!form.lastName || !form.firstName || !form.email || !form.phone) {
++    errorMsg.value = 'A név, e-mail és telefonszám megadása kötelező.'
++    return
++  }
++  step.value = 3
++}
++
++async function submit() {
++  if (!settlement.value || !terms.value || !service.value || !chosenStart.value) return
++  submitting.value = true
++  errorMsg.value = ''
++  try {
++    result.value = await $fetch('/api/appointments/hold', {
++      method: 'POST',
++      body: {
++        serviceId: service.value.id,
++        practitionerId: practitionerId.value,
++        startsAt: chosenStart.value,
++        settlement: settlement.value,
++        note: form.note || undefined,
++        customer: user.value
++          ? undefined
++          : {
++              lastName: form.lastName,
++              firstName: form.firstName,
++              email: form.email,
++              phone: form.phone,
++            },
++      },
++    })
++  } catch (e: unknown) {
++    const err = e as { data?: { statusMessage?: string }; statusMessage?: string }
++    errorMsg.value =
++      err.data?.statusMessage ?? err.statusMessage ?? 'A foglalás nem sikerült. Kérlek próbáld újra.'
++    // Ha az idősáv közben elkelt, újratöltjük a naptárat, hogy ne kínáljuk fel újra.
++    await refreshAvail()
++    chosenStart.value = null
++    step.value = 1
++  } finally {
++    submitting.value = false
++  }
++}
++
++const chosenPractitioner = computed(
++  () => practitioners.value.find((p) => p.practitionerId === practitionerId.value)?.practitionerName ?? '—',
++)
++
++useSeoMeta({
++  title: () => (service.value ? `${service.value.title} – időpontfoglalás | V40 Vital` : 'Időpontfoglalás | V40 Vital'),
++  robots: 'noindex',
++})
++</script>
++
++<template>
++  <Header />
++
++  <div class="relative w-full pb-10 pt-12 lg:pt-16 lg:pb-14 lg:px-[100px] bg-[#E5F7F9]">
++    <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
++      <h1 class="text-[32px] lg:text-[56px] dm-sans font-bold mb-3 text-center text-[#171008]">
++        Időpontfoglalás
++      </h1>
++      <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">
++        {{ service?.title ?? 'Kezelés' }}
++      </p>
++    </div>
++  </div>
++
++  <div class="w-full bg-[#F4F4F0] py-10 lg:py-14 lg:px-[100px]">
++    <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
++      <div v-if="svcError" class="bg-white rounded-lg p-8 text-center">
++        <p class="dm-sans text-[18px]">Ez a kezelés nem elérhető.</p>
++        <NuxtLink to="/kezelesek" class="inline-block mt-4 bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium">
++          Vissza a kezelésekhez
++        </NuxtLink>
++      </div>
++
++      <!-- ---------------- visszaigazolás ---------------- -->
++      <div v-else-if="result" class="bg-white rounded-lg p-6 lg:p-10 max-w-[640px] mx-auto">
++        <h2 class="dm-sans font-bold text-[26px] mb-2">
++          {{ result.needsPayment ? 'Az időpontot fenntartottuk' : 'Foglalás megerősítve' }}
++        </h2>
++        <p class="dm-sans text-[#00000080] mb-6">
++          {{ result.needsPayment
++            ? 'A fizetés befejezéséig tartjuk az idősávot.'
++            : 'Visszaigazolást küldtünk e-mailben.' }}
++        </p>
++
++        <div class="flex justify-between py-2 border-b border-dashed border-[#0000001A] text-[15px]">
++          <span>Azonosító</span><b class="font-mono">{{ result.publicRef }}</b>
++        </div>
++        <div class="flex justify-between py-2 border-b border-dashed border-[#0000001A] text-[15px]">
++          <span>Kezelés</span><b>{{ service?.title }}</b>
++        </div>
++        <div class="flex justify-between py-2 border-b border-dashed border-[#0000001A] text-[15px]">
++          <span>Szakember</span><b>{{ chosenPractitioner }}</b>
++        </div>
++        <div class="flex justify-between py-2 border-b border-dashed border-[#0000001A] text-[15px]">
++          <span>Időpont</span><b>{{ longDate(result.startsAt) }}, {{ hhmm(result.startsAt) }}</b>
++        </div>
++        <div class="flex justify-between py-2 text-[15px]">
++          <span>Fizetés</span>
++          <b>{{ result.settlement === 'PASS' ? 'bérletből levonva'
++            : result.settlement === 'ON_SITE' ? 'helyszínen' : 'bankkártya' }}</b>
++        </div>
++
++        <div v-if="result.needsPayment" class="mt-6 bg-[#FDF3EA] text-[#A6541B] rounded-lg p-4 text-[14px]">
++          A bankkártyás fizetés még nem elérhető ezen a rendszeren. Az időpontot
++          fenntartottuk, kollégánk felveszi veled a kapcsolatot.
++        </div>
++
++        <div class="mt-7 flex flex-wrap gap-3">
++          <NuxtLink to="/fiok" class="bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium dm-sans">
++            Foglalásaim
++          </NuxtLink>
++          <NuxtLink to="/kezelesek" class="border-2 border-[#153131] text-[#153131] rounded-lg px-8 py-[14px] font-medium dm-sans">
++            További kezelések
++          </NuxtLink>
++        </div>
++      </div>
++
++      <!-- ---------------- folyamat ---------------- -->
++      <template v-else>
++        <div class="flex flex-wrap gap-2 mb-7">
++          <div
++            v-for="(t, i) in ['Időpont', 'Adatok', 'Megerősítés']"
++            :key="t"
++            class="text-[13px] font-semibold rounded-full px-4 py-2 border"
++            :class="step === i + 1
++              ? 'bg-[#153131] border-[#153131] text-white'
++              : step > i + 1
++                ? 'bg-[#E5F7F9] border-[#E5F7F9] text-[#153131]'
++                : 'bg-white border-[#0000001A] text-[#00000080]'"
++          >
++            {{ i + 1 }}. {{ t }}
++          </div>
++        </div>
++
++        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
++          <div class="bg-white rounded-lg p-5 lg:p-8">
++            <p v-if="errorMsg" class="mb-5 bg-[#FDF3EA] text-[#A6541B] rounded-lg p-4 text-[14px] font-semibold">
++              {{ errorMsg }}
++            </p>
++
++            <!-- 1. lépés -->
++            <template v-if="step === 1">
++              <h3 class="dm-sans font-bold text-[20px] mb-3">Szakember</h3>
++              <p v-if="availStatus === 'pending'" class="text-[#00000080]">Szabad időpontok betöltése…</p>
++              <p v-else-if="!practitioners.length" class="text-[#00000080]">
++                {{ avail?.reason ?? 'Ehhez a kezeléshez jelenleg nincs elérhető szakember.' }}
++              </p>
++              <div v-else class="flex flex-wrap gap-2">
++                <button
++                  v-for="p in practitioners"
++                  :key="p.practitionerId"
++                  class="rounded-full px-4 py-2 text-[14px] border"
++                  :class="p.practitionerId === practitionerId
++                    ? 'bg-[#153131] border-[#153131] text-white font-semibold'
++                    : 'bg-white border-[#0000001A] text-[#00000080]'"
++                  @click="pickPractitioner(p.practitionerId)"
++                >
++                  {{ p.practitionerName }}
++                </button>
++              </div>
++
++              <template v-if="practitionerId !== null">
++                <h3 class="dm-sans font-bold text-[20px] mt-8 mb-3">Nap</h3>
++                <div class="flex gap-2 overflow-x-auto pb-2">
++                  <button
++                    v-for="d in dayList"
++                    :key="d.offset"
++                    class="shrink-0 w-[74px] rounded-lg border py-2.5 text-center"
++                    :class="[
++                      d.offset === dayOffset ? 'bg-[#153131] border-[#153131] text-white' : 'bg-white border-[#0000001A]',
++                      hasAnySlot(d.offset) ? '' : 'opacity-40 cursor-not-allowed',
++                    ]"
++                    :disabled="!hasAnySlot(d.offset)"
++                    @click="pickDay(d.offset)"
++                  >
++                    <small class="block text-[11px] uppercase tracking-wide"
++                      :class="d.offset === dayOffset ? 'text-white/70' : 'text-[#00000080]'">{{ d.dow }}</small>
++                    <b class="dm-sans text-[19px]">{{ d.num }}</b>
++                    <span class="block text-[11px]"
++                      :class="d.offset === dayOffset ? 'text-white/70' : 'text-[#00000080]'">{{ d.mon }}</span>
++                  </button>
++                </div>
++
++                <template v-if="dayOffset !== null">
++                  <h3 class="dm-sans font-bold text-[20px] mt-6 mb-3">Időpont</h3>
++                  <div class="flex flex-wrap gap-2">
++                    <button
++                      v-for="s in daySlots"
++                      :key="s.start"
++                      class="rounded-lg border px-4 py-3 min-w-[80px] font-semibold"
++                      :class="s.start === chosenStart
++                        ? 'bg-[#153131] border-[#153131] text-white'
++                        : 'bg-white border-[#0000001A]'"
++                      @click="chosenStart = s.start"
++                    >
++                      {{ hhmm(s.start) }}
++                    </button>
++                  </div>
++                  <p class="text-[#00000080] text-[14px] mt-4">
++                    A kezelés {{ service?.time }} perc. A megjelenő időpontok már tartalmazzák
++                    az előkészítési időt.
++                  </p>
++                </template>
++              </template>
++
++              <div class="mt-8">
++                <button
++                  class="bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium dm-sans disabled:opacity-40"
++                  :disabled="!chosenStart"
++                  @click="toStep2"
++                >
++                  Tovább az adatokhoz
++                </button>
++              </div>
++            </template>
++
++            <!-- 2. lépés -->
++            <template v-else-if="step === 2">
++              <h3 class="dm-sans font-bold text-[20px] mb-4">Adataid</h3>
++              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
++                <div>
++                  <label class="block text-[13px] font-bold mb-1.5">Vezetéknév *</label>
++                  <input v-model="form.lastName" type="text" class="w-full border border-[#0000001A] rounded-lg px-3 py-3" />
++                </div>
++                <div>
++                  <label class="block text-[13px] font-bold mb-1.5">Keresztnév *</label>
++                  <input v-model="form.firstName" type="text" class="w-full border border-[#0000001A] rounded-lg px-3 py-3" />
++                </div>
++              </div>
++              <div class="mt-4">
++                <label class="block text-[13px] font-bold mb-1.5">E-mail *</label>
++                <input v-model="form.email" type="email" class="w-full border border-[#0000001A] rounded-lg px-3 py-3" />
++                <p class="text-[12px] text-[#00000080] mt-1.5">
++                  Ide küldjük a visszaigazolást és a belépő linket – nem kell jelszót kitalálnod.
++                </p>
++              </div>
++              <div class="mt-4">
++                <label class="block text-[13px] font-bold mb-1.5">Telefonszám *</label>
++                <input v-model="form.phone" type="tel" class="w-full border border-[#0000001A] rounded-lg px-3 py-3" />
++              </div>
++              <div class="mt-4">
++                <label class="block text-[13px] font-bold mb-1.5">Megjegyzés a rendelőnek</label>
++                <textarea v-model="form.note" rows="3" class="w-full border border-[#0000001A] rounded-lg px-3 py-3" />
++              </div>
++
++              <div class="mt-6 flex flex-wrap gap-3">
++                <button class="bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium dm-sans" @click="toStep3">
++                  Tovább
++                </button>
++                <button class="text-[#00000080] underline py-4" @click="step = 1">Vissza</button>
++              </div>
++            </template>
++
++            <!-- 3. lépés -->
++            <template v-else>
++              <h3 class="dm-sans font-bold text-[20px] mb-4">Fizetési mód</h3>
++
++              <label
++                v-for="opt in [
++                  { v: 'ON_SITE', t: 'Fizetés a helyszínen', d: 'Készpénz vagy bankkártya a rendelőben. Az időpont azonnal megerősítésre kerül.' },
++                  { v: 'PASS', t: 'Bérletből levonás', d: 'Ha van érvényes bérleted erre a kezelésre, a rendszer levon egy alkalmat.' },
++                  { v: 'ONLINE_CARD', t: 'Bankkártyás fizetés (hamarosan)', d: 'A kártyás fizetés még nincs élesítve. Az időpontot fenntartjuk, és felkeresünk.' },
++                ]"
++                :key="opt.v"
++                class="flex gap-3 items-start bg-white border-2 rounded-lg p-4 mb-3 cursor-pointer"
++                :class="settlement === opt.v ? 'border-[#153131]' : 'border-[#0000001A]'"
++              >
++                <input v-model="settlement" type="radio" :value="opt.v" class="mt-1 w-[17px] h-[17px] accent-[#153131]" />
++                <span>
++                  <b class="block text-[15px]">{{ opt.t }}</b>
++                  <span class="text-[#00000080] text-[13.5px]">{{ opt.d }}</span>
++                </span>
++              </label>
++
++              <label class="flex gap-3 items-start my-5 text-[14px] cursor-pointer">
++                <input v-model="terms" type="checkbox" class="mt-1 w-[17px] h-[17px] accent-[#153131]" />
++                <span>
++                  Elfogadom az <NuxtLink to="/aszf" class="underline">ÁSZF</NuxtLink>-et és az
++                  <NuxtLink to="/adatvedelmi" class="underline">Adatkezelési tájékoztatót</NuxtLink>.
++                </span>
++              </label>
++
++              <div class="flex flex-wrap gap-3">
++                <button
++                  class="bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium dm-sans disabled:opacity-40"
++                  :disabled="!settlement || !terms || submitting"
++                  @click="submit"
++                >
++                  {{ submitting ? 'Foglalás…' : 'Foglalás megerősítése' }}
++                </button>
++                <button class="text-[#00000080] underline py-4" @click="step = 2">Vissza</button>
++              </div>
++            </template>
++          </div>
++
++          <!-- összegző -->
++          <div class="bg-white rounded-lg p-5 lg:sticky lg:top-6">
++            <h4 class="dm-sans font-bold text-[16px] mb-4">Összegzés</h4>
++            <div class="flex justify-between gap-3 py-2 border-b border-dashed border-[#0000001A] text-[14px]">
++              <span>Kezelés</span><b class="text-right">{{ service?.title }}</b>
++            </div>
++            <div class="flex justify-between gap-3 py-2 border-b border-dashed border-[#0000001A] text-[14px]">
++              <span>Szakember</span><b class="text-right">{{ chosenPractitioner }}</b>
++            </div>
++            <div class="flex justify-between gap-3 py-2 border-b border-dashed border-[#0000001A] text-[14px]">
++              <span>Időpont</span>
++              <b class="text-right">{{ chosenStart ? `${longDate(chosenStart)}, ${hhmm(chosenStart)}` : '—' }}</b>
++            </div>
++            <div class="flex justify-between gap-3 py-2 border-b border-dashed border-[#0000001A] text-[14px]">
++              <span>Időtartam</span><b>{{ service?.time }} perc</b>
++            </div>
++            <div class="flex justify-between gap-3 py-2 text-[14px]">
++              <span>Áfa</span><b>{{ service?.vatRate ? '27%' : 'áfamentes' }}</b>
++            </div>
++            <div class="flex justify-between mt-3 pt-3 border-t-2 border-[#171008] dm-sans font-bold text-[19px]">
++              <span>Fizetendő</span>
++              <span>{{ settlement === 'PASS' ? '1 alkalom' : Ft(service?.price ?? 0) }}</span>
++            </div>
++          </div>
++        </div>
++      </template>
++    </div>
++  </div>
++
++  <WFooter />
++</template>
+diff --git a/app/pages/idopont.vue b/app/pages/idopont.vue
+index 6706e9c..4b6a95b 100644
+--- a/app/pages/idopont.vue
++++ b/app/pages/idopont.vue
+@@ -1,25 +1,99 @@
++<script setup lang="ts">
++/**
++ * Időpontfoglalás – kezelésválasztás.
++ *
++ * A korábbi verzióban itt egy külső Swazy widget volt beágyazva. Azt a saját
++ * foglalási folyamat váltotta fel: innen a kezelés kiválasztása után a
++ * /foglalas/[slug] oldalra megy az ügyfél, ahol a valódi szabad idősávok
++ * jelennek meg az adatbázisból.
++ */
++interface P {
++  id: number
++  slug: string
++  title: string
++  desc: string
++  type: string | null
++  price: number
++  time: number
++  vatRate: number
++}
++
++const { data: services } = await useFetch<P[]>('/api/products')
++const { data: types } = await useFetch<string[]>('/api/products/types')
++
++const filter = ref('Minden')
++const list = computed(() =>
++  (services.value ?? []).filter((s) => filter.value === 'Minden' || s.type === filter.value),
++)
++const Ft = (n: number) => new Intl.NumberFormat('hu-HU').format(n) + ' Ft'
++
++useSeoMeta({
++  title: 'Időpontfoglalás | V40 Vital',
++  description:
++    'Válaszd ki a kezelést, és foglalj időpontot online. Szabad időpontok valós időben, azonnali visszaigazolással.',
++})
++</script>
++
+ <template>
+-    <Header />
+-    <div class="relative w-full pb-12 pt-12 lg:pt-20 lg:pb-20 lg:px-[100px] bg-[#E5F7F9]">
+-        <div class="relative w-full">
+-            <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
+-                <h1 class="text-[32px] lg:text-[64px] dm-sans font-bold mb-4 text-center text-[#171008]">
+-                    Időpontfoglalás
+-                </h1>
+-                <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">Hasznos, közérthető tartalmak
+-                    a longevityről, a kezelésekről és a tudatos egészségmegőrzésről.
+-                </p>
+-            </div>
+-            <div class="w-full max-w-[1440px] mx-auto p-4 flex flex-col mt-10 lg:px-0">
+-                <swazy-booking business-id="d5ca3d81-724b-4cc7-bb84-32a2630dc38a"></swazy-booking>
++  <Header />
++
++  <div class="relative w-full pb-10 pt-12 lg:pt-16 lg:pb-14 lg:px-[100px] bg-[#E5F7F9]">
++    <div class="w-full max-w-[1440px] mx-auto flex flex-col items-center p-4 lg:px-0">
++      <h1 class="text-[32px] lg:text-[64px] dm-sans font-bold mb-4 text-center text-[#171008]">
++        Időpontfoglalás
++      </h1>
++      <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">
++        Válaszd ki a kezelést, és a következő lépésben megjelennek a szabad időpontok.
++      </p>
++    </div>
++  </div>
++
++  <div class="w-full bg-[#F4F4F0] py-10 lg:py-14 lg:px-[100px]">
++    <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
++      <div class="flex flex-wrap gap-2 mb-7">
++        <button
++          v-for="t in ['Minden', ...(types ?? [])]"
++          :key="t"
++          class="rounded-full px-4 py-2 text-[14px] border"
++          :class="t === filter
++            ? 'bg-[#153131] border-[#153131] text-white font-semibold'
++            : 'bg-white border-[#0000001A] text-[#00000080]'"
++          @click="filter = t"
++        >
++          {{ t }}
++        </button>
++      </div>
++
++      <div v-for="s in list" :key="s.id" class="bg-white rounded-lg p-6 mb-4">
++        <div class="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-5">
++          <div>
++            <h2 class="dm-sans font-bold text-[21px] mb-1.5">{{ s.title }}</h2>
++            <p class="text-[#00000080] text-[15px] mb-3">{{ s.desc }}</p>
++            <div class="flex flex-wrap gap-2">
++              <span class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[14px]">{{ s.time }} perc</span>
++              <span v-if="s.type" class="bg-[#2F73F21A] text-[#153131] rounded-sm px-2 py-1 text-[14px]">{{ s.type }}</span>
+             </div>
++          </div>
++          <div class="lg:text-right shrink-0">
++            <p class="dm-sans font-bold text-[28px]">{{ Ft(s.price) }}</p>
++            <p class="text-[#00000080] text-[13px] mb-4">
++              {{ s.vatRate ? 'bruttó, 27% áfa' : 'áfamentes egészségügyi szolgáltatás' }}
++            </p>
++            <NuxtLink
++              :to="`/foglalas/${s.slug}`"
++              class="inline-block bg-[#153131] text-[#F4F4F0] rounded-lg px-8 py-4 font-medium dm-sans"
++            >
++              Időpontot választok
++            </NuxtLink>
++          </div>
+         </div>
++      </div>
++
++      <p v-if="!list.length" class="bg-white rounded-lg p-6 text-[#00000080]">
++        Ebben a kategóriában jelenleg nincs online foglalható kezelés.
++      </p>
+     </div>
+-    <WFooter />
+-</template>
+-<script setup>
+-    useSeoMeta({
+-    title: 'Időpontfoglalás | V40',
++  </div>
+ 
+-    })
+-    </script>
+\ No newline at end of file
++  <WFooter />
++</template>
+diff --git a/app/pages/szolgaltatas/[slug].vue b/app/pages/szolgaltatas/[slug].vue
+index d257989..c783a21 100644
+--- a/app/pages/szolgaltatas/[slug].vue
++++ b/app/pages/szolgaltatas/[slug].vue
+@@ -18,17 +18,13 @@
+                 </div>
+                 <div class="w-full flex flex-col gap-4 lg:gap-0 lg:flex-row lg:items-center lg:justify-between">
+                     <p class="dm-sans font-bold text-[#171008] text-[28px] lg:text-[32px]">{{ new Intl.NumberFormat('hu-HU').format(product.product.price) }} Ft</p>
+-                    <button @click="handleBooking(product.product.title)"
+-                        class="flex-1 lg:flex-none bg-[#153131] text-center rounded-lg px-8 py-4 dm-sans text-[#F4F4F0] font-medium transition-all"
+-                        >
++                    <NuxtLink :to="`/foglalas/${product.product.slug}`"
++                        class="flex-1 lg:flex-none bg-[#153131] text-center rounded-lg px-8 py-4 dm-sans text-[#F4F4F0] font-medium transition-all">
+                         Időpontfoglalás
+-                    </button>
++                    </NuxtLink>
+                 </div>
+             </div>
+         </div>
+-        <div v-if="showBooking" class="w-full max-w-[1440px] mx-auto p-4 flex flex-col mt-10 lg:px-0">
+-            <swazy-booking  business-id="d5ca3d81-724b-4cc7-bb84-32a2630dc38a"></swazy-booking>
+-        </div>
+         <div v-if="product.related && product.related.length > 0" class="w-full max-w-[1440px] mx-auto p-4 flex flex-col mt-20 lg:mt-40 lg:px-0">
+             <h1 class="text-[28px] lg:text-[48px] dm-sans font-bold mb-4 text-[#171008]">
+                 Hasonló termékek
+@@ -71,7 +67,6 @@
+ </template>
+ 
+ <script setup>
+-const showBooking = ref(false)
+ 
+ const route = useRoute()
+ const { data: product } = await useFetch('/api/products', {
+@@ -90,12 +85,4 @@ const slugify = (text) => {
+         .replace(/--+/g, '-');
+ }
+ 
+-const handleBooking = (title) => {
+-    if (title === 'Anyajegyvizsgálat FotoFinderrel®') {
+-        // Külső oldal megnyitása új lapon
+-        window.open('https://www.anyajegyklinika.hu/', '_blank');
+-    } else {
+-        showBooking.value = true;
+-    }
+-}
+ </script>
+\ No newline at end of file
+diff --git a/nuxt.config.ts b/nuxt.config.ts
+index 55ae930..dbf32bb 100644
+--- a/nuxt.config.ts
++++ b/nuxt.config.ts
+@@ -3,21 +3,10 @@ export default defineNuxtConfig({
+   compatibilityDate: '2025-07-15',
+   devtools: { enabled: false },
+ 
+-  vue: {
+-    compilerOptions: {
+-      // Itt mondjuk meg a Vue-nak, hogy ne keressen Swazy nevű Vue fájlt
+-      isCustomElement: (tag) => tag.startsWith('swazy-')
+-    }
+-  },
+   app: {
+     head: {
+-      script: [
+-        { 
+-          src: 'https://api.swazy.app/swazy-booking.js', 
+-          defer: true 
+-        }
+-      ]
+-    }
++      htmlAttrs: { lang: 'hu' },
++    },
+   },
+ 
+   // A port a fejlesztői szerver beállítása, nem Nitro-opció. A korábbi
+diff --git a/server/api/appointments/hold.post.ts b/server/api/appointments/hold.post.ts
+index d5d3c7b..4e6fdb7 100644
+--- a/server/api/appointments/hold.post.ts
++++ b/server/api/appointments/hold.post.ts
+@@ -28,6 +28,11 @@ const body = z.object({
+   serviceId: z.number().int().positive(),
+   practitionerId: z.number().int().positive(),
+   startsAt: z.coerce.date(),
++  // Háromféle rendezés van, és nem ugyanaz a végállapotuk:
++  //  ONLINE_CARD -> HOLD, a fizetésre várva (lejár, ha nem fizet)
++  //  PASS        -> azonnal CONFIRMED, egy alkalom levonva a bérletből
++  //  ON_SITE     -> azonnal CONFIRMED, a díj a rendelőben fizetendő
++  settlement: z.enum(['ONLINE_CARD', 'PASS', 'ON_SITE']).default('ONLINE_CARD'),
+   customer: z
+     .object({
+       lastName: z.string().min(1).max(100),
+@@ -59,7 +64,7 @@ export default defineEventHandler(async (event) => {
+       data: { fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join('.'), i.message])) },
+     })
+   }
+-  const { serviceId, practitionerId, startsAt, customer, note } = parsed.data
++  const { serviceId, practitionerId, startsAt, customer, note, settlement } = parsed.data
+ 
+   const session = await getUserSession(event)
+   const sessionUserId = (session?.user as { id?: number } | undefined)?.id
+@@ -207,8 +212,37 @@ export default defineEventHandler(async (event) => {
+           throw createError({ statusCode: 409, statusMessage: 'A szoba időközben foglalt lett.' })
+         }
+ 
++        // --- bérletből fizetés: az alkalom keresése és levonása -----------
++        // A tranzakción BELÜL, hogy két párhuzamos foglalás ne vonhassa le
++        // ugyanazt a maradék alkalmat.
++        let pass: { id: number; sessionsRemaining: number | null } | null = null
++        if (settlement === 'PASS') {
++          const covering = await tx.customerPass.findFirst({
++            where: {
++              userId: userId!,
++              status: 'ACTIVE',
++              validFrom: { lte: startsAt },
++              validUntil: { gte: startsAt },
++              OR: [{ sessionsRemaining: { gt: 0 } }, { sessionsRemaining: null }],
++              passTemplate: { services: { some: { serviceId } } },
++            },
++            // A leghamarabb lejáró bérletet használjuk fel először, hogy ne
++            // veszítsen el az ügyfél alkalmat.
++            orderBy: { validUntil: 'asc' },
++            select: { id: true, sessionsRemaining: true },
++          })
++          if (!covering) {
++            throw createError({
++              statusCode: 409,
++              statusMessage: 'Nincs erre a kezelésre érvényes, felhasználható bérleted.',
++            })
++          }
++          pass = covering
++        }
++
+         // --- 2. réteg: egyedi kulcsok ------------------------------------
+-        return tx.appointment.create({
++        const confirmed = settlement !== 'ONLINE_CARD'
++        const appointment = await tx.appointment.create({
+           data: {
+             publicRef: publicRef(),
+             userId: userId!,
+@@ -217,9 +251,9 @@ export default defineEventHandler(async (event) => {
+             roomId,
+             startsAt,
+             endsAt,
+-            status: 'HOLD',
+-            settlement: 'ONLINE_CARD',
+-            holdUntil,
++            status: confirmed ? 'CONFIRMED' : 'HOLD',
++            settlement,
++            holdUntil: confirmed ? null : holdUntil,
+             slotLock: `${practitionerId}:${iso}`,
+             roomSlotLock: roomId !== null ? `${roomId}:${iso}` : null,
+             priceGross: service.priceGross,
+@@ -228,11 +262,49 @@ export default defineEventHandler(async (event) => {
+           },
+           select: { id: true, publicRef: true, startsAt: true, endsAt: true, holdUntil: true },
+         })
++
++        if (pass) {
++          const sessionsPerUse =
++            (
++              await tx.passTemplateService.findFirst({
++                where: { serviceId, passTemplate: { passes: { some: { id: pass.id } } } },
++                select: { sessionsPerUse: true },
++              })
++            )?.sessionsPerUse ?? 1
++
++          await tx.passRedemption.create({
++            data: {
++              customerPassId: pass.id,
++              appointmentId: appointment.id,
++              sessionsUsed: sessionsPerUse,
++            },
++          })
++
++          if (pass.sessionsRemaining !== null) {
++            const left = pass.sessionsRemaining - sessionsPerUse
++            if (left < 0) {
++              throw createError({
++                statusCode: 409,
++                statusMessage: 'A bérleten nincs elég maradék alkalom ehhez a kezeléshez.',
++              })
++            }
++            await tx.customerPass.update({
++              where: { id: pass.id },
++              data: {
++                sessionsRemaining: left,
++                status: left === 0 ? 'EXHAUSTED' : 'ACTIVE',
++              },
++            })
++          }
++        }
++
++        return appointment
+       },
+       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 10_000 },
+     )
+ 
+-    await audit(event, userId ?? null, 'appointment.hold', 'Appointment', appointment.id, {
++    await audit(event, userId ?? null, `appointment.${settlement.toLowerCase()}`, 'Appointment', appointment.id, {
++      settlement,
+       serviceId,
+       practitionerId,
+       roomId,
+@@ -247,6 +319,9 @@ export default defineEventHandler(async (event) => {
+       holdUntil: appointment.holdUntil,
+       priceGross: service.priceGross,
+       holdMinutes,
++      settlement,
++      // ONLINE_CARD esetén a kliensnek még a fizetésre kell mennie
++      needsPayment: settlement === 'ONLINE_CARD',
+     }
+   } catch (err) {
+     // Ha a zárolás valamiért átengedte, az egyedi kulcs itt fogja meg.
+diff --git a/server/api/me/index.get.ts b/server/api/me/index.get.ts
+new file mode 100644
+index 0000000..0101e19
+--- /dev/null
++++ b/server/api/me/index.get.ts
+@@ -0,0 +1,69 @@
++import { prisma } from '~~/server/utils/prisma'
++import { requireUser } from '~~/server/utils/guard'
++
++/**
++ * A bejelentkezett ügyfél foglalásai és bérletei a /fiok oldalhoz.
++ *
++ * Csak a saját adatát adja vissza: a szűrés a session felhasználójára történik,
++ * nem kliens által küldött azonosítóra.
++ */
++export default defineEventHandler(async (event) => {
++  const user = await requireUser(event)
++
++  const [profile, appointments, passes] = await Promise.all([
++    prisma.user.findUnique({
++      where: { id: user.id },
++      select: { email: true, firstName: true, lastName: true, phone: true },
++    }),
++    prisma.appointment.findMany({
++      where: {
++        userId: user.id,
++        // A lejárt zárolások nem érdeklik az ügyfelet
++        status: { in: ['HOLD', 'PENDING_PAYMENT', 'CONFIRMED', 'COMPLETED', 'NO_SHOW'] },
++      },
++      orderBy: { startsAt: 'desc' },
++      select: {
++        publicRef: true,
++        startsAt: true,
++        endsAt: true,
++        status: true,
++        settlement: true,
++        priceGross: true,
++        holdUntil: true,
++        service: { select: { title: true, slug: true, durationMin: true } },
++        practitioner: { select: { name: true } },
++        room: { select: { name: true } },
++      },
++    }),
++    prisma.customerPass.findMany({
++      where: { userId: user.id, status: { in: ['ACTIVE', 'EXHAUSTED'] } },
++      orderBy: { validUntil: 'asc' },
++      select: {
++        code: true,
++        sessionsTotal: true,
++        sessionsRemaining: true,
++        validFrom: true,
++        validUntil: true,
++        status: true,
++        passTemplate: {
++          select: {
++            title: true,
++            services: { select: { service: { select: { title: true, slug: true } } } },
++          },
++        },
++      },
++    }),
++  ])
++
++  const now = Date.now()
++  return {
++    profile,
++    upcoming: appointments.filter((a) => a.startsAt.getTime() >= now),
++    past: appointments.filter((a) => a.startsAt.getTime() < now),
++    passes: passes.map((p) => ({
++      ...p,
++      services: p.passTemplate.services.map((s) => s.service),
++      passTemplate: { title: p.passTemplate.title },
++    })),
++  }
++})
+diff --git a/server/api/passes.get.ts b/server/api/passes.get.ts
+new file mode 100644
+index 0000000..e274926
+--- /dev/null
++++ b/server/api/passes.get.ts
+@@ -0,0 +1,40 @@
++import { prisma } from '~~/server/utils/prisma'
++
++/** Publikus bérlet-katalógus a /berletek oldalhoz. */
++export default defineCachedEventHandler(
++  async () => {
++    const rows = await prisma.passTemplate.findMany({
++      where: { archivedAt: null, isActive: true },
++      orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }],
++      select: {
++        id: true,
++        slug: true,
++        title: true,
++        desc: true,
++        priceGross: true,
++        vatRate: true,
++        sessionCount: true,
++        validityDays: true,
++        transferable: true,
++        picUrl: true,
++        services: {
++          select: { sessionsPerUse: true, service: { select: { title: true, slug: true, priceGross: true } } },
++        },
++      },
++    })
++
++    return rows.map((p) => {
++      // Listaár: a legdrágább fedezett kezelés alkalmankénti ára szorozva az
++      // alkalmakkal. Ez az összehasonlítási alap, amit az ügyfél is látni akar.
++      const unit = Math.max(0, ...p.services.map((s) => s.service.priceGross))
++      const list = p.sessionCount ? unit * p.sessionCount : 0
++      return {
++        ...p,
++        services: p.services.map((s) => s.service),
++        listPriceGross: list,
++        savingGross: Math.max(0, list - p.priceGross),
++      }
++    })
++  },
++  { maxAge: 60, name: 'public-passes' },
++)
+-- 
+2.43.0
+

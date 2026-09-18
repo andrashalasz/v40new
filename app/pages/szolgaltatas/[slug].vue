@@ -2,7 +2,7 @@
    <Header />
     <div class="relative w-full lg:px-[160px] pt-8 lg:pt-20 pb-20 bg-[#F4F4F0]">
         <div class="w-full max-w-[1440px] mx-auto p-4 flex flex-col lg:flex-row lg:gap-20 lg:px-0">
-            <NuxtImg :src="product.product.picUrl" class="w-full lg:w-[520px] lg:h-[520px] object-cover rounded-lg" />
+            <NuxtImg :src="product.product.picUrl || '43.jpeg'" class="w-full lg:w-[520px] lg:h-[520px] object-cover rounded-lg" />
             <div class="flex flex-col w-full">
                 <h1 class="text-[28px] lg:text-[48px] leading-[1.2] dm-sans font-bold mb-4 mt-6 lg:mt-0 text-[#171008]">
                     {{ product.product.title }}
@@ -36,7 +36,7 @@
                 <NuxtLink v-for="product in product.related" :key="product.id" :to="`/szolgaltatas/${product.slug}`"
                     class="w-full flex flex-col lg:flex-row justify-between">
                     <div class="flex flex-col lg:flex-row items-center gap-6">
-                        <NuxtImg :src="product.picUrl" :alt="product.title"
+                        <NuxtImg :src="product.picUrl || '43.jpeg'" :alt="product.title"
                             class="h-[280px] w-[280px] object-cover rounded-xl mb-4" />
                         <div>
                             <h3 class="font-medium text-[24px] text-[#171008] dm-sans mb-2">{{ product.title }}</h3>
@@ -69,8 +69,9 @@
 <script setup>
 
 const route = useRoute()
+const locale = useLocale()
 const { data: product } = await useFetch('/api/products', {
-    query: { slug: route.params.slug }
+    query: { slug: route.params.slug, locale: locale.value }
 })
 
 const slugify = (text) => {

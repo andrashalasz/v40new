@@ -6,7 +6,8 @@
 </template>
 
 <script setup>
+const { t } = await useContent()
 useSeoMeta({
-    title: 'Kezelések | V40',
+    title: () => `${t('nav.treatments', 'Kezelések')} | V40 Vital`,
 })
 </script>

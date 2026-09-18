@@ -1,0 +1,462 @@
+From e0dfce82b5f38ef7e1d7e202325e2fd4dcd0c12d Mon Sep 17 00:00:00 2001
+From: V40 Vital <dev@v40vital.hu>
+Date: Thu, 13 Aug 2026 13:57:36 +0000
+Subject: [PATCH] =?UTF-8?q?T=C3=ADpusellen=C5=91rz=C3=A9si=20hib=C3=A1k=20?=
+ =?UTF-8?q?jav=C3=ADt=C3=A1sa?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A projekt első `nuxt typecheck` futtatása 64 hibát adott – a lista duplán
+jelent meg, mert a Nuxt külön ellenőrzi az app és a server projektet, tehát
+valójában ~32 különálló hiba volt.
+
+VALÓDI FUTÁSIDEJŰ HIBA, amit a típusellenőrzés fogott ki
+A server/api/login.ts a `user.password` mezőt olvasta, de az új séma ezt
+`passwordHash`-re nevezte át. A bejelentkezés éles környezetben elhasalt volna,
+és ezt semmilyen teszt nem fogta volna meg, mert a login-ra nincs teszt.
+
+A login egyúttal rendbe is jött:
+- Zod validálás az e-mailre és a jelszóra
+- egységes hibaüzenet: nem szivárogtatjuk, hogy létezik-e a cím
+- időzítés-kiegyenlítés nem létező felhasználónál is, mert a hash nélküli válasz
+  észrevehetően gyorsabb, és ebből ki lehet találni, hogy a cím nem létezik
+- sikeres és sikertelen belépés is auditnaplóba kerül
+
+Egyéb javítások
+- types/auth.d.ts: a nuxt-auth-utils `User` típusának kiegészítése (id, email,
+  role). Enélkül minden `session.user.role` és `user.email` olvasás hibát adott.
+- server/api/blogs.ts és blogs/add.ts: a `session.user` lehet undefined, a
+  `!session || session.user.role !== 'ADMIN'` alak ezt nem kezelte
+- nuxt.config.ts: a `nitro.externals.include` nem létező opció volt; a helyes
+  kulcs az `external`, amivel a Prisma query engine binárisa nem kerül a
+  bundle-be (cPanelen ez fontos)
+- AdminResource.vue: az `idsFrom` a kapcsolótábla-leképezést destrukturálva
+  olvasta, amiből a noUncheckedIndexedAccess `string | undefined`-ot csinált.
+  Objektumos leképezés lett belőle, egy ellenőrzéssel.
+- Banner.vue: a `webkitMaskImage` nem érvényes CSSProperties kulcs, a Vue a
+  nagy kezdőbetűs vendor-prefixet fogadja el (`WebkitMaskImage`)
+- @types/node devDependency: a `process`, `Buffer`, `node:crypto`,
+  `node:fs/promises`, `node:path`, `node:test` mind emiatt hiányzott
+- typescript.tsConfig.allowImportingTsExtensions: a tesztfájl `./availability.ts`
+  alakban importál, mert a node --experimental-strip-types futtatásához a
+  kiterjesztés kötelező
+
+A tesztfájl ellenőrzött elemhozzáférést kapott
+A `noUncheckedIndexedAccess` miatt a `slots[0]` típusa `Date | undefined`. A 17
+helyen szórt `!` helyett egy `at()` segéd került be, ami assert-tel ellenőriz:
+ha a lista rövidebb a vártnál, a teszt beszédes hibát ad ("nincs elem a 0.
+helyen, hossz: 0") egy értelmezhetetlen TypeError helyett.
+
+27 teszt továbbra is zöld.
+---
+ app/components/AdminResource.vue    | 34 +++++++++-----
+ app/components/Banner.vue           |  2 +-
+ nuxt.config.ts                      | 19 ++++++--
+ package.json                        |  3 +-
+ server/api/blogs.ts                 |  2 +-
+ server/api/blogs/add.ts             |  2 +-
+ server/api/login.ts                 | 73 +++++++++++++++++------------
+ server/booking/availability.test.ts | 50 +++++++++++++-------
+ types/auth.d.ts                     | 15 ++++++
+ 9 files changed, 133 insertions(+), 67 deletions(-)
+ create mode 100644 types/auth.d.ts
+
+diff --git a/app/components/AdminResource.vue b/app/components/AdminResource.vue
+index a490f35..cf40fec 100644
+--- a/app/components/AdminResource.vue
++++ b/app/components/AdminResource.vue
+@@ -59,24 +59,34 @@ const archived = computed(() => items.value.filter((r) => r.archivedAt))
+ 
+ function optionsFor(f: Field) {
+   if (f.options) return f.options
+-  if (!f.optionsFrom) return []
+-  const rows = refData.value?.[f.optionsFrom] ?? []
++  // Külön lokális változó: a `f.optionsFrom` szűkítése önmagában nem élte túl
++  // az indexelést, mert a prop-ból származó objektum írható.
++  const src = f.optionsFrom
++  if (!src) return []
++  const rows = refData.value?.[src] ?? []
+   const label = f.optionsLabel ?? 'name'
+   return rows
+     .filter((r) => !r.archivedAt)
+     .map((r) => ({ value: r.id as number, label: String(r[label]) }))
+ }
+ 
+-/** A kapcsolt rekordokból a *Ids tömb – az űrlap ezt szerkeszti. */
+-function idsFrom(row: Row, key: string) {
+-  const map: Record<string, [string, string]> = {
+-    roomIds: ['rooms', 'roomId'],
+-    practitionerIds: ['practitioners', 'practitionerId'],
+-    serviceIds: ['services', 'serviceId'],
+-  }
+-  const [relKey, idKey] = map[key] ?? []
+-  if (!relKey) return []
+-  return ((row[relKey] as Row[]) ?? []).map((j) => j[idKey] as number)
++/**
++ * A kapcsolt rekordokból a *Ids tömb – az űrlap ezt szerkeszti.
++ *
++ * A kapcsolótáblák neve és az idegen kulcs mezőneve nem vezethető le a
++ * *Ids kulcsból, ezért explicit leképezés van. A `noUncheckedIndexedAccess`
++ * miatt a destrukturálás `string | undefined`-ot ad, ezért egyben ellenőrzünk.
++ */
++const JOIN_MAP: Record<string, { rel: string; fk: string }> = {
++  roomIds: { rel: 'rooms', fk: 'roomId' },
++  practitionerIds: { rel: 'practitioners', fk: 'practitionerId' },
++  serviceIds: { rel: 'services', fk: 'serviceId' },
++}
++
++function idsFrom(row: Row, key: string): number[] {
++  const m = JOIN_MAP[key]
++  if (!m) return []
++  return ((row[m.rel] as Row[] | undefined) ?? []).map((j) => j[m.fk] as number)
+ }
+ 
+ function openNew() {
+diff --git a/app/components/Banner.vue b/app/components/Banner.vue
+index 316f634..d03942f 100644
+--- a/app/components/Banner.vue
++++ b/app/components/Banner.vue
+@@ -9,7 +9,7 @@
+         <div class="absolute inset-0 bg-cover bg-top blur-md scale-105" :style="{
+             backgroundImage: `url('/banner1.png')`,
+             maskImage: 'linear-gradient(to top, black 0%, transparent 40%)',
+-            webkitMaskImage: 'linear-gradient(to top, black 0%, transparent 40%)'
++            WebkitMaskImage: 'linear-gradient(to top, black 0%, transparent 40%)'
+         }">
+         </div>
+ 
+diff --git a/nuxt.config.ts b/nuxt.config.ts
+index 9ff5aa7..3e05f52 100644
+--- a/nuxt.config.ts
++++ b/nuxt.config.ts
+@@ -20,12 +20,25 @@ export default defineNuxtConfig({
+     }
+   },
+ 
+-   nitro: {
++  nitro: {
+     port: 3001,
++    // Az `externals.include` nem létező opció volt (a típusellenőrzés fogta ki).
++    // A Prisma kliens külső modulként kezelése a `external` listával történik –
++    // így a query engine binárisa nem kerül bele a bundle-be.
+     externals: {
+       trace: false,
+-      include: ['@prisma/client']
+-    }
++      external: ['@prisma/client', '.prisma/client'],
++    },
++  },
++
++  typescript: {
++    // A tesztfájl `./availability.ts` alakban importál, mert a node
++    // --experimental-strip-types futtatásához a kiterjesztés kötelező.
++    tsConfig: {
++      compilerOptions: {
++        allowImportingTsExtensions: true,
++      },
++    },
+   },
+ 
+   modules: [
+diff --git a/package.json b/package.json
+index 748f3cb..aa945f3 100644
+--- a/package.json
++++ b/package.json
+@@ -40,6 +40,7 @@
+     "prisma": "^6.19.2",
+     "tsx": "^4.21.0",
+     "vue-tsc": "^2.1.10",
+-    "typescript": "^5.6.3"
++    "typescript": "^5.6.3",
++    "@types/node": "^22.10.2"
+   }
+ }
+\ No newline at end of file
+diff --git a/server/api/blogs.ts b/server/api/blogs.ts
+index 12add4b..e1dbe25 100644
+--- a/server/api/blogs.ts
++++ b/server/api/blogs.ts
+@@ -67,7 +67,7 @@ export default defineEventHandler(async (event: H3Event) => {
+ 
+   // --- Admin jogosultság ellenőrzése a módosító műveletekhez ---
+   const session = await getUserSession(event);
+-  if (!session || session.user.role !== "ADMIN") {
++  if (session?.user?.role !== "ADMIN") {
+     throw createError({ statusCode: 401, message: "Nincs jogosultságod!" });
+   }
+ 
+diff --git a/server/api/blogs/add.ts b/server/api/blogs/add.ts
+index f649272..32a14c3 100644
+--- a/server/api/blogs/add.ts
++++ b/server/api/blogs/add.ts
+@@ -7,7 +7,7 @@ import sharp from "sharp";
+ export default defineEventHandler(async (event: H3Event) => {
+   // 1. Jogosultság ellenőrzése
+   const session = await getUserSession(event);
+-  if (!session || session.user.role !== "ADMIN") {
++  if (session?.user?.role !== "ADMIN") {
+     throw createError({ statusCode: 401, message: "Nem vagy admin!" });
+   }
+ 
+diff --git a/server/api/login.ts b/server/api/login.ts
+index 3779020..8587a0b 100644
+--- a/server/api/login.ts
++++ b/server/api/login.ts
+@@ -1,48 +1,61 @@
+-// A megosztott peldanyt hasznaljuk, kulon PrismaClient nem nyilik
+-// import { PrismaClient } from '@prisma/client'
+ import bcrypt from 'bcryptjs'
+-
++import { z } from 'zod'
+ import { prisma } from '~~/server/utils/prisma'
++import { audit } from '~~/server/utils/audit'
++
++/**
++ * Bejelentkezés e-maillel és jelszóval.
++ *
++ * A `User.password` mezőt az új séma `passwordHash`-re nevezte át – a korábbi
++ * kód még a régi nevet használta, ami a bejelentkezést futásidőben elhasította
++ * volna (a típusellenőrzés fogta ki).
++ *
++ * A jelszó nullable, mert a foglaláskor automatikusan létrejövő fiókoknak nincs
++ * jelszava; azok e-mailes belépő linkkel jelentkeznek be.
++ */
++const body = z.object({
++  email: z.string().email().max(200),
++  password: z.string().min(1).max(200),
++})
+ 
+ export default defineEventHandler(async (event) => {
+-  const body = await readBody(event)
+-  const { email, password } = body
+-
+-  if (!email || !password) {
+-    throw createError({ statusCode: 400, statusMessage: 'Hiányzó adatok!' })
++  const parsed = body.safeParse(await readBody(event))
++  if (!parsed.success) {
++    throw createError({ statusCode: 400, statusMessage: 'Hiányzó vagy hibás adatok!' })
+   }
++  const email = parsed.data.email.toLowerCase()
+ 
+-  // Felhasználó keresése
+   const user = await prisma.user.findUnique({
+-    where: { email }
++    where: { email },
++    select: {
++      id: true,
++      email: true,
++      role: true,
++      passwordHash: true,
++      anonymizedAt: true,
++    },
+   })
+ 
+-  // Ellenőrzés (biztonsági okokból általános hibaüzenet)
+-  if (!user) {
+-    throw createError({ statusCode: 401, statusMessage: 'Érvénytelen e-mail vagy jelszó!' })
+-  }
++  // Egységes hibaüzenet: nem szivárogtatjuk, hogy létezik-e a cím.
++  const invalid = () =>
++    createError({ statusCode: 401, statusMessage: 'Érvénytelen e-mail vagy jelszó!' })
+ 
+-  // Jelszó összehasonlítása
+-  // A User.password nullable (jelszo nelkuli, e-mailes belepes is lehet),
+-  // ezert bcrypt.compare ele explicit ellenorzes kell
+-  if (!user.password) {
+-    throw createError({ statusCode: 401, statusMessage: 'Hibás e-mail vagy jelszó!' })
++  if (!user || user.anonymizedAt || !user.passwordHash) {
++    // Időzítés-kiegyenlítés: hash nélkül a válasz észrevehetően gyorsabb lenne,
++    // amiből ki lehetne találni, hogy a cím nem létezik.
++    await bcrypt.compare(parsed.data.password, '$2b$12$' + 'x'.repeat(53))
++    throw invalid()
+   }
+ 
+-  const isValid = await bcrypt.compare(password, user.password)
+-
+-  if (!isValid) {
+-    throw createError({ statusCode: 401, statusMessage: 'Érvénytelen e-mail vagy jelszó!' })
++  if (!(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
++    await audit(event, user.id, 'auth.login.failed', 'User', user.id)
++    throw invalid()
+   }
+ 
+-  // Session létrehozása a nuxt-auth-utils segítségével
+   await setUserSession(event, {
+-    user: {
+-      id: user.id,
+-      email: user.email,
+-      role: user.role
+-    }
++    user: { id: user.id, email: user.email, role: user.role },
+   })
++  await audit(event, user.id, 'auth.login', 'User', user.id)
+ 
+   return { success: true }
+-})
+\ No newline at end of file
++})
+diff --git a/server/booking/availability.test.ts b/server/booking/availability.test.ts
+index 9fcd84c..26f6220 100644
+--- a/server/booking/availability.test.ts
++++ b/server/booking/availability.test.ts
+@@ -15,11 +15,25 @@ import {
+ //  Segédek
+ // ---------------------------------------------------------------------------
+ 
++/**
++ * Ellenőrzött elemhozzáférés.
++ *
++ * A `noUncheckedIndexedAccess` miatt a `slots[0]` típusa `Date | undefined`.
++ * Az `!` helyett ez a segéd használatos: ha a lista rövidebb a vártnál, a teszt
++ * beszédes hibát ad, nem egy "cannot read property of undefined"-ot.
++ */
++function at<T>(arr: readonly T[], i: number): T {
++  const v = i < 0 ? arr.at(i) : arr[i]
++  assert.ok(v !== undefined, `nincs elem a(z) ${i}. helyen (hossz: ${arr.length})`)
++  return v
++}
++
+ /** Helyi (Europe/Budapest) falióra-idő -> Date. "2026-08-03 09:00" */
+ const L = (s: string): Date => {
+   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/)
+   if (!m) throw new Error(`rossz formátum: ${s}`)
+-  return localWallToUtc(+m[1], +m[2], +m[3], +m[4] * 60 + +m[5])
++  const [, y, mo, d, h, mi] = m as unknown as string[]
++  return localWallToUtc(+y!, +mo!, +d!, +h! * 60 + +mi!)
+ }
+ 
+ /** Egy Date helyi "HH:MM" formában, az ellenőrzések olvashatóságához. */
+@@ -76,11 +90,11 @@ test('a nyitvatartás UTC-ben eltolódik óraátállításkor, helyiben nem', ()
+   )
+   const summer = computeFreeSlots(base())
+ 
+-  assert.equal(hhmm(winter[0]), '09:00')
+-  assert.equal(hhmm(summer[0]), '09:00')
++  assert.equal(hhmm(at(winter, 0)), '09:00')
++  assert.equal(hhmm(at(summer, 0)), '09:00')
+   // ...de az UTC instant különböző:
+-  assert.equal(winter[0].toISOString().slice(11, 16), '08:00')
+-  assert.equal(summer[0].toISOString().slice(11, 16), '07:00')
++  assert.equal(at(winter, 0).toISOString().slice(11, 16), '08:00')
++  assert.equal(at(summer, 0).toISOString().slice(11, 16), '07:00')
+ })
+ 
+ // ---------------------------------------------------------------------------
+@@ -91,13 +105,13 @@ test('9-17 nyitvatartás, 60 perces kezelés, 15 perces raszter', () => {
+   const slots = computeFreeSlots(base())
+   // 09:00 ... 16:00 negyedóránként = 29 idősáv
+   assert.equal(slots.length, 29)
+-  assert.equal(hhmm(slots[0]), '09:00')
+-  assert.equal(hhmm(slots.at(-1)!), '16:00')
++  assert.equal(hhmm(at(slots, 0)), '09:00')
++  assert.equal(hhmm(at(slots, -1)), '16:00')
+ })
+ 
+ test('a kezelésnek el kell férnie zárásig - 90 percnél korábban elfogy', () => {
+   const slots = computeFreeSlots(base({ service: { ...base().service, durationMin: 90 } }))
+-  assert.equal(hhmm(slots.at(-1)!), '15:30')
++  assert.equal(hhmm(at(slots, -1)), '15:30')
+ })
+ 
+ test('zárt napon nincs idősáv (vasárnap)', () => {
+@@ -165,8 +179,8 @@ test('a meglévő foglalás SAJÁT pufferei is védenek (toBusyBlocks-on át)',
+     ],
+     now,
+   )
+-  assert.equal(hhmm(busy[0].start), '10:45')
+-  assert.equal(hhmm(busy[0].end), '12:15')
++  assert.equal(hhmm(at(busy, 0).start), '10:45')
++  assert.equal(hhmm(at(busy, 0).end), '12:15')
+ 
+   const times = computeFreeSlots(
+     base({ service: { ...base().service, bufferBeforeMin: 15, bufferAfterMin: 15 }, busy }),
+@@ -200,7 +214,7 @@ test('lemondott foglalás NEM blokkol, megerősített igen', () => {
+     now,
+   )
+   assert.equal(blocks.length, 1)
+-  assert.equal(hhmm(blocks[0].start), '14:00')
++  assert.equal(hhmm(at(blocks, 0).start), '14:00')
+ })
+ 
+ test('lejárt HOLD felszabadul, élő HOLD blokkol', () => {
+@@ -227,7 +241,7 @@ test('lejárt HOLD felszabadul, élő HOLD blokkol', () => {
+     now,
+   )
+   assert.equal(blocks.length, 1)
+-  assert.equal(hhmm(blocks[0].start), '14:00')
++  assert.equal(hhmm(at(blocks, 0).start), '14:00')
+ })
+ 
+ test('szabadság és ünnepnapi zárás is kivág', () => {
+@@ -236,7 +250,7 @@ test('szabadság és ünnepnapi zárás is kivág', () => {
+       timeOff: [{ start: L('2026-08-03 09:00'), end: L('2026-08-03 13:00') }],
+     }),
+   )
+-  assert.equal(hhmm(slots[0]), '13:00')
++  assert.equal(hhmm(at(slots, 0)), '13:00')
+ 
+   const closed = computeFreeSlots(
+     base({ closures: [{ start: L('2026-08-03 00:00'), end: L('2026-08-04 00:00') }] }),
+@@ -258,7 +272,7 @@ test('minLeadTimeHours: 24 órán belülre nem lehet foglalni', () => {
+     }),
+   )
+   assert.ok(slots.every((s) => s.getTime() >= L('2026-08-04 08:00').getTime()))
+-  assert.equal(localPartsOf(slots[0]).day, 4)
++  assert.equal(localPartsOf(at(slots, 0)).day, 4)
+ })
+ 
+ test('maxLeadTimeDays: a naptár nem nyílik ki a jövőbe korlátlanul', () => {
+@@ -340,8 +354,8 @@ test('subtractIntervals: a középső kivágás két szakaszra bont', () => {
+     [{ start: L('2026-08-03 12:00'), end: L('2026-08-03 13:00') }],
+   )
+   assert.equal(out.length, 2)
+-  assert.equal(hhmm(out[0].end), '12:00')
+-  assert.equal(hhmm(out[1].start), '13:00')
++  assert.equal(hhmm(at(out, 0).end), '12:00')
++  assert.equal(hhmm(at(out, 1).start), '13:00')
+ })
+ 
+ test('subtractIntervals: teljes átfedés esetén nem marad semmi', () => {
+@@ -361,7 +375,7 @@ test('subtractIntervals: teljes átfedés esetén nem marad semmi', () => {
+ test('szoba nélkül nincs kapacitás-korlát, a roomId null', () => {
+   const slots = computeFreeSlotsWithRooms(base())
+   assert.equal(slots.length, 29)
+-  assert.equal(slots[0].roomId, null)
++  assert.equal(at(slots, 0).roomId, null)
+ })
+ 
+ test('két alkalmas szoba: az egyik foglaltsága nem zárja ki az idősávot', () => {
+@@ -375,7 +389,7 @@ test('két alkalmas szoba: az egyik foglaltsága nem zárja ki az idősávot', (
+   )
+   const at11 = slots.find((s) => hhmm(s.start) === '11:00')
+   assert.ok(at11, 'a 11:00 továbbra is foglalható')
+-  assert.equal(at11!.roomId, 2, 'a szabad szobát kapja')
++  assert.equal(at11.roomId, 2, 'a szabad szobát kapja')
+ })
+ 
+ test('minden alkalmas szoba foglalt: nincs idősáv, hiába szabad az orvos', () => {
+diff --git a/types/auth.d.ts b/types/auth.d.ts
+new file mode 100644
+index 0000000..4dd1c8b
+--- /dev/null
++++ b/types/auth.d.ts
+@@ -0,0 +1,15 @@
++/**
++ * A nuxt-auth-utils `User` típusának kiegészítése.
++ *
++ * Enélkül a `session.user.role` és a `user.email` típushibát adott mindenhol,
++ * ahol a szerepkört olvassuk – a modul alapból üres `User` interfészt exportál.
++ */
++declare module '#auth-utils' {
++  interface User {
++    id: number
++    email: string
++    role: 'USER' | 'STAFF' | 'ADMIN'
++  }
++}
++
++export {}
+-- 
+2.43.0
+

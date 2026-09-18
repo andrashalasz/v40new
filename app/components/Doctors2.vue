@@ -1,7 +1,9 @@
 <script setup>
+const { t } = await useContent()
 // SSR adatlekérés
+const locale = useLocale()
 const { data: doctors, pending } = await useFetch('/api/doctors', {
-    // Itt adhatsz meg opciókat, pl. transform-ot, ha csak bizonyos mezők kellenek
+    query: { locale },
 });
 </script>
 
@@ -10,15 +12,14 @@ const { data: doctors, pending } = await useFetch('/api/doctors', {
         <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
             <div class="px-3 lg:px-0 flex flex-col max-w-[1440px] mx-auto mb-16">
                 <h2 class="text-[28px] lg:text-[48px] dm-sans font-bold mb-4 text-[#171008]">
-                    Orvosaink
+                    {{ t('rolunk.doctors.title', 'Orvosaink') }}
                 </h2>
                 <p class="dm-sans text-[#171008] text-[18px] lg:max-w-[540px]">
-                    Orvosi csapatunk a szakmai precizitást, a személyes figyelmet és a hosszú távú egészség szemléletét
-                    képviseli.
+                    {{ t('rolunk.doctors.lead', 'Orvosi csapatunk a szakmai precizitást, a személyes figyelmet és a hosszú távú egészség szemléletét képviseli.') }}
                 </p>
             </div>
 
-            <div v-if="pending" class="text-center py-10">Betöltés...</div>
+            <div v-if="pending" class="text-center py-10">{{ t('common.loading', 'Betöltés...') }}</div>
 
             <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div v-for="doctor in doctors" :key="doctor.id" class="">

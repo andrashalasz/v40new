@@ -1,11 +1,14 @@
-export default defineNuxtRouteMiddleware(() => {
+export default defineNuxtRouteMiddleware((to) => {
   const { user } = useUserSession()
+  const role = (user.value as { role?: string } | null)?.role
+  const canAdmin = role === 'ADMIN' || role === 'STAFF' || role === 'DOCTOR'
 
-  if (!user.value) return navigateTo('/login')
+  // A /admin maga a belépőpont: ott a belépő űrlap jelenik meg (nincs külön
+  // /login lépés). Az al-oldalakat viszont visszaküldjük a /admin-ra, ha nincs
+  // (megfelelő) belépés – így nem próbálnak admin API-t hívni jogosultság nélkül.
+  if (!canAdmin && to.path !== '/admin') return navigateTo('/admin')
 
-  // A szerveroldali requireAdmin STAFF-ot is elfogad; a kettő eltérése azt
-  // jelentette volna, hogy egy STAFF felhasználó hívhatja az API-t, de a
-  // felületre nem tud belépni.
-  const role = (user.value as { role?: string }).role
-  if (role !== 'ADMIN' && role !== 'STAFF') return navigateTo('/')
+  // Orvos csak a szakvélemény-felületet éri el; minden mást oda terelünk
+  // (a /admin dashboard helyett is a saját munkafelületére visszük).
+  if (role === 'DOCTOR' && to.path !== '/admin/szakvelemenyek') return navigateTo('/admin/szakvelemenyek')
 })

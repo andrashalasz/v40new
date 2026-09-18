@@ -1,7 +1,10 @@
 <script setup>
+const { t } = await useContent()
 const order = ['Vértes', 'Szabó', 'Péter', 'Gájer'];
 
+const locale = useLocale()
 const { data: doctors, pending } = await useFetch('/api/doctors', {
+    query: { locale },
     transform: (data) => {
         return data.sort((a, b) => {
             const indexA = order.findIndex(name => a.name.includes(name));
@@ -17,18 +20,18 @@ const { data: doctors, pending } = await useFetch('/api/doctors', {
         <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
             <div class="px-3 lg:px-0 flex flex-col items-center max-w-[1440px] mx-auto mb-16">
                 <h2 class="text-[28px] lg:text-[48px] dm-sans font-bold mb-4 text-center text-[#171008]">
-                    Orvosaink
+                    {{ t('home.doctors.title', 'Orvosaink') }}
                 </h2>
                 <p class="dm-sans text-[#171008] text-[18px] text-center lg:max-w-[540px]">
-                    A V40Vital programjait tapasztalt orvosok állítják össze és kísérik végig
+                    {{ t('home.doctors.lead', 'A V40Vital programjait tapasztalt orvosok állítják össze és kísérik végig') }}
                 </p>
             </div>
 
-            <div v-if="pending" class="text-center py-10">Betöltés...</div>
+            <div v-if="pending" class="text-center py-10">{{ t('common.loading', 'Betöltés...') }}</div>
 
             <div v-else class="grid grid-cols-1 lg:grid-cols-4 gap-6">
                 <div v-for="doctor in doctors" :key="doctor.id" class="flex flex-col">
-                    <NuxtImg :src="doctor.picUrl" :alt="doctor.name"
+                    <NuxtImg :src="doctor.picUrl || 'orvos-placeholder.svg'" :alt="doctor.name"
                         class="w-full lg:h-[320px] object-cover rounded-lg mb-4" />
                     <div>
                         <h3 class="text-[24px] font-medium dm-sans text-[#171008]">{{ doctor.name }}</h3>

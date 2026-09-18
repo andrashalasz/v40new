@@ -12,7 +12,7 @@ declare module '#auth-utils' {
   interface User {
     id: number
     email: string
-    role: 'USER' | 'STAFF' | 'ADMIN'
+    role: 'USER' | 'DOCTOR' | 'STAFF' | 'ADMIN'
   }
 }
 

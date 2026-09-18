@@ -33,6 +33,7 @@ export default defineEventHandler(async (event) => {
       role: true,
       passwordHash: true,
       anonymizedAt: true,
+      isActive: true,
     },
   })
 
@@ -40,7 +41,7 @@ export default defineEventHandler(async (event) => {
   const invalid = () =>
     createError({ statusCode: 401, statusMessage: 'Érvénytelen e-mail vagy jelszó!' })
 
-  if (!user || user.anonymizedAt || !user.passwordHash) {
+  if (!user || user.anonymizedAt || !user.isActive || !user.passwordHash) {
     // Időzítés-kiegyenlítés: hash nélkül a válasz észrevehetően gyorsabb lenne,
     // amiből ki lehetne találni, hogy a cím nem létezik.
     await bcrypt.compare(parsed.data.password, '$2b$12$' + 'x'.repeat(53))

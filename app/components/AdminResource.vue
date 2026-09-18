@@ -170,89 +170,137 @@ async function restore(row: Row) {
 
 const spanClass = (f: Field) =>
   f.span === 3 ? 'sm:col-span-2' : f.span === 2 ? 'sm:col-span-3' : 'sm:col-span-6'
+
+const inputBase =
+  'w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition-shadow focus:border-[#153131] focus:ring-2 focus:ring-[#153131]/15'
+const inputClass = (key: string) =>
+  `${inputBase} ${fieldErrors.value[key] ? 'border-[#FDA29B]' : 'border-[#D0D5DD]'}`
+
+// A mezőket szekciókra bontjuk (Field.group). A csoport nélküli mezők egy
+// cím nélküli szekcióba kerülnek – így a rövid űrlapok változatlanul néznek ki.
+const fieldGroups = computed(() => {
+  const groups: { title: string | null; fields: Field[] }[] = []
+  for (const f of def.value.fields) {
+    const title = f.group ?? null
+    let g = groups.find((x) => x.title === title)
+    if (!g) {
+      g = { title, fields: [] }
+      groups.push(g)
+    }
+    g.fields.push(f)
+  }
+  return groups
+})
+
+// Képfeltöltés az admin űrlapokon. A fájl a /api/admin/upload-ra megy, a
+// visszakapott URL-t az adott mezőbe írjuk.
+const uploading = ref<string | null>(null)
+
+async function uploadImage(key: string, e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !editing.value) return
+  uploading.value = key
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await $fetch<{ url: string }>('/api/admin/upload', { method: 'POST', body: fd })
+    editing.value[key] = res.url
+  } catch (err: unknown) {
+    toast.value = (err as { data?: { statusMessage?: string } }).data?.statusMessage ?? 'A feltöltés nem sikerült.'
+    setTimeout(() => (toast.value = ''), 2500)
+  } finally {
+    uploading.value = null
+    input.value = ''
+  }
+}
 </script>
 
 <template>
   <div>
+    <!-- Fejléc -->
     <div class="flex flex-wrap items-start gap-4 mb-5">
       <div>
-        <h1 class="font-bold text-[22px] mb-0.5">{{ def.plural }}</h1>
-        <p class="text-[#6B6660] max-w-2xl text-sm">{{ def.lead }}</p>
+        <h1 class="font-bold text-[24px] tracking-tight">{{ def.plural }}</h1>
+        <p class="text-[#667085] max-w-2xl text-sm mt-0.5">{{ def.lead }}</p>
       </div>
       <button
-        class="ml-auto rounded-lg bg-[#153131] px-4 py-2.5 text-sm font-semibold text-white"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-[#153131] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2525] transition-colors"
         @click="openNew"
       >
-        + Új {{ def.singular }}
+        <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+        Új {{ def.singular }}
       </button>
     </div>
 
-    <!-- lista -->
-    <div class="rounded-xl border border-[#E4E4DE] bg-white p-4 overflow-x-auto">
-      <p v-if="status === 'pending'" class="text-[#6B6660] text-sm">Betöltés…</p>
-      <table v-else class="w-full text-sm">
-        <thead>
-          <tr>
-            <th
-              v-for="c in def.columns"
-              :key="c.label"
-              class="border-b border-[#E4E4DE] py-2.5 px-2 text-left text-[10px] font-bold uppercase tracking-[0.07em] text-[#6B6660] whitespace-nowrap"
-            >
-              {{ c.label }}
-            </th>
-            <th class="border-b border-[#E4E4DE]" />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in active" :key="String(row.id)">
-            <td
-              v-for="(c, i) in def.columns"
-              :key="c.label"
-              class="border-b border-[#E4E4DE] py-2.5 px-2"
-              :class="i === 0 ? 'font-semibold' : ''"
-            >
-              {{ c.get(row) }}
-            </td>
-            <td class="border-b border-[#E4E4DE] py-2.5 px-2 text-right whitespace-nowrap">
-              <button
-                class="rounded-lg border border-[#E4E4DE] bg-white px-3 py-1.5 text-xs font-semibold"
-                @click="openEdit(row)"
+    <!-- Lista -->
+    <div class="rounded-xl border border-[#ECEDEF] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] overflow-hidden">
+      <div v-if="status === 'pending'" class="p-8 text-center text-[#667085] text-sm">Betöltés…</div>
+      <div v-else class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-[#FAFAFB]">
+              <th
+                v-for="c in def.columns"
+                :key="c.label"
+                class="border-b border-[#ECEDEF] py-3 px-4 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[#667085] whitespace-nowrap"
               >
-                Szerkesztés
-              </button>
-              <button
-                class="ml-1.5 rounded-lg border border-[#EED9D7] bg-white px-3 py-1.5 text-xs font-semibold text-[#B3261E]"
-                @click="archiving = row"
+                {{ c.label }}
+              </th>
+              <th class="border-b border-[#ECEDEF]" />
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F0F1F3]">
+            <tr v-for="row in active" :key="String(row.id)" class="hover:bg-[#FAFAFB] transition-colors">
+              <td
+                v-for="(c, i) in def.columns"
+                :key="c.label"
+                class="py-3 px-4 align-middle"
+                :class="i === 0 ? 'font-semibold text-[#101828]' : 'text-[#475467]'"
               >
-                Törlés
-              </button>
-            </td>
-          </tr>
-          <tr v-if="!active.length">
-            <td :colspan="def.columns.length + 1" class="py-4 px-2 text-[#6B6660]">
-              Még nincs egy sem.
-            </td>
-          </tr>
-        </tbody>
-      </table>
+                {{ c.get(row) }}
+              </td>
+              <td class="py-2.5 px-4 text-right whitespace-nowrap">
+                <button
+                  class="rounded-lg border border-[#D9DCE1] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors"
+                  @click="openEdit(row)"
+                >
+                  Szerkesztés
+                </button>
+                <button
+                  class="ml-1.5 rounded-lg border border-[#FECDCA] bg-white px-3 py-1.5 text-xs font-semibold text-[#B42318] hover:bg-[#FEF3F2] transition-colors"
+                  @click="archiving = row"
+                >
+                  Törlés
+                </button>
+              </td>
+            </tr>
+            <tr v-if="!active.length">
+              <td :colspan="def.columns.length + 1" class="py-10 px-4 text-center text-[#667085]">
+                Még nincs egy sem. Kezdd az „Új {{ def.singular }}" gombbal.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
-      <label class="mt-4 flex items-center gap-2 text-sm text-[#6B6660]">
+      <label class="flex items-center gap-2 text-sm text-[#667085] border-t border-[#ECEDEF] px-4 py-3">
         <input v-model="showArchived" type="checkbox" class="accent-[#153131]" />
         Archiváltak mutatása
       </label>
     </div>
 
-    <!-- archivált -->
-    <div v-if="showArchived && archived.length" class="mt-4 rounded-xl border border-[#E4E4DE] bg-white p-4">
-      <h2 class="font-bold mb-1">Archivált ({{ archived.length }})</h2>
-      <p class="text-[#6B6660] text-sm mb-3">
+    <!-- Archivált -->
+    <div v-if="showArchived && archived.length" class="mt-4 rounded-xl border border-[#ECEDEF] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+      <h2 class="font-semibold mb-1">Archivált ({{ archived.length }})</h2>
+      <p class="text-[#667085] text-sm mb-3">
         Ezek nem jelennek meg a weboldalon, de a korábbi foglalások és számlák
         továbbra is hivatkoznak rájuk.
       </p>
-      <div v-for="row in archived" :key="String(row.id)" class="flex items-center gap-3 border-t border-[#E4E4DE] py-2.5 opacity-60">
+      <div v-for="row in archived" :key="String(row.id)" class="flex items-center gap-3 border-t border-[#F0F1F3] py-3 opacity-70">
         <span class="font-semibold text-sm">{{ row[def.titleKey] }}</span>
         <button
-          class="ml-auto rounded-lg border border-[#E4E4DE] bg-white px-3 py-1.5 text-xs font-semibold"
+          class="ml-auto rounded-lg border border-[#D9DCE1] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors"
           @click="restore(row)"
         >
           Visszaállítás
@@ -260,136 +308,167 @@ const spanClass = (f: Field) =>
       </div>
     </div>
 
-    <!-- szerkesztő -->
+    <!-- Szerkesztő -->
     <div
       v-if="editing"
-      class="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-[#171008]/50 p-5"
+      class="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-[#0C111D]/50 backdrop-blur-sm p-4 sm:p-6"
       @click.self="editing = null"
     >
-      <div class="w-full max-w-3xl rounded-2xl bg-white p-6">
-        <h3 class="font-bold text-[19px]">
-          {{ isNew ? `Új ${def.singular}` : `${def.singular} szerkesztése` }}
-        </h3>
-        <p class="text-[#6B6660] text-sm mb-5">A csillagos mezők kitöltése kötelező.</p>
+      <div class="w-full max-w-3xl rounded-2xl bg-white shadow-2xl my-4">
+        <div class="flex items-start justify-between gap-4 border-b border-[#ECEDEF] px-6 py-5">
+          <div>
+            <h3 class="font-bold text-[18px] tracking-tight">
+              {{ isNew ? `Új ${def.singular}` : `${def.singular} szerkesztése` }}
+            </h3>
+            <p class="text-[#667085] text-[13px] mt-0.5">A csillagos mezők kitöltése kötelező.</p>
+          </div>
+          <button
+            class="text-[#98A2B3] hover:text-[#101828] hover:bg-[#F1F2F4] rounded-lg p-1.5 transition-colors"
+            @click="editing = null"
+          >
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
-          <div v-for="f in def.fields" :key="f.key" :class="spanClass(f)">
-            <label v-if="f.type !== 'bool'" class="mb-1.5 block text-xs font-bold">
-              {{ f.label }}<span v-if="f.required"> *</span>
-            </label>
-
-            <input
-              v-if="f.type === 'text'"
-              v-model="editing[f.key] as string"
-              type="text"
-              class="w-full rounded-lg border px-3 py-2"
-              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
-            />
-
-            <input
-              v-else-if="f.type === 'number'"
-              v-model.number="editing[f.key] as number"
-              type="number"
-              :min="f.min"
-              class="w-full rounded-lg border px-3 py-2"
-              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
-            />
-
-            <textarea
-              v-else-if="f.type === 'textarea'"
-              v-model="editing[f.key] as string"
-              :rows="f.rows ?? 3"
-              class="w-full rounded-lg border px-3 py-2"
-              :class="fieldErrors[f.key] ? 'border-[#B3261E]' : 'border-[#E4E4DE]'"
-            />
-
-            <select
-              v-else-if="f.type === 'select'"
-              v-model="editing[f.key]"
-              class="w-full rounded-lg border border-[#E4E4DE] px-3 py-2 bg-white"
-            >
-              <option v-if="!f.required" :value="null">– nincs –</option>
-              <option v-for="o in optionsFor(f)" :key="String(o.value)" :value="o.value">
-                {{ o.label }}
-              </option>
-            </select>
-
-            <label v-else-if="f.type === 'bool'" class="flex items-center gap-2 text-sm font-semibold">
-              <input v-model="editing[f.key]" type="checkbox" class="accent-[#153131] w-4 h-4" />
-              {{ f.label }}
-            </label>
-
-            <div v-else-if="f.type === 'multi'" class="flex flex-wrap gap-2">
-              <label
-                v-for="o in optionsFor(f)"
-                :key="String(o.value)"
-                class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-                :class="((editing[f.key] as number[]) ?? []).includes(o.value as number)
-                  ? 'border-[#153131] bg-[#E5F7F9]'
-                  : 'border-[#E4E4DE] bg-white'"
-              >
-                <input
-                  type="checkbox"
-                  class="accent-[#153131]"
-                  :checked="((editing[f.key] as number[]) ?? []).includes(o.value as number)"
-                  @change="toggleMulti(f.key, o.value as number)"
-                />
-                {{ o.label }}
+        <div class="px-6 py-5">
+          <div v-for="(grp, gi) in fieldGroups" :key="gi" :class="gi > 0 ? 'mt-6' : ''">
+            <h4 v-if="grp.title" class="text-[13px] font-semibold text-[#101828] mb-3 pb-1.5 border-b border-[#F0F1F3]">
+              {{ grp.title }}
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-6 gap-4">
+            <div v-for="f in grp.fields" :key="f.key" :class="spanClass(f)">
+              <label v-if="f.type !== 'bool'" class="mb-1.5 block text-[13px] font-semibold text-[#344054]">
+                {{ f.label }}<span v-if="f.required" class="text-[#B42318]"> *</span>
               </label>
-              <span v-if="!optionsFor(f).length" class="text-sm text-[#6B6660]">
-                Nincs mit választani – előbb vegyél fel legalább egyet.
-              </span>
-            </div>
 
-            <div v-else-if="f.type === 'paragraphs'" class="flex flex-col gap-2">
-              <div
-                v-for="(_, i) in (editing[f.key] as string[])"
-                :key="i"
-                class="flex items-start gap-2"
+              <input
+                v-if="f.type === 'text'"
+                v-model="editing[f.key] as string"
+                type="text"
+                :class="inputClass(f.key)"
+              />
+
+              <input
+                v-else-if="f.type === 'number'"
+                v-model.number="editing[f.key] as number"
+                type="number"
+                :min="f.min"
+                :class="inputClass(f.key)"
+              />
+
+              <textarea
+                v-else-if="f.type === 'textarea'"
+                v-model="editing[f.key] as string"
+                :rows="f.rows ?? 3"
+                :class="inputClass(f.key)"
+              />
+
+              <select
+                v-else-if="f.type === 'select'"
+                v-model="editing[f.key]"
+                :class="`${inputBase} border-[#D0D5DD] bg-white`"
               >
-                <textarea
-                  v-model="(editing[f.key] as string[])[i]"
-                  rows="3"
-                  class="flex-1 rounded-lg border border-[#E4E4DE] px-3 py-2"
-                />
-                <button
-                  class="h-9 w-8 rounded-lg border border-[#E4E4DE] text-[#6B6660]"
-                  @click="(editing[f.key] as string[]).splice(i, 1)"
+                <option v-if="!f.required" :value="null">– nincs –</option>
+                <option v-for="o in optionsFor(f)" :key="String(o.value)" :value="o.value">
+                  {{ o.label }}
+                </option>
+              </select>
+
+              <label v-else-if="f.type === 'bool'" class="flex items-center gap-2.5 text-sm font-semibold text-[#344054] mt-1">
+                <input v-model="editing[f.key]" type="checkbox" class="accent-[#153131] w-4 h-4" />
+                {{ f.label }}
+              </label>
+
+              <div v-else-if="f.type === 'multi'" class="flex flex-wrap gap-2">
+                <label
+                  v-for="o in optionsFor(f)"
+                  :key="String(o.value)"
+                  class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors"
+                  :class="((editing[f.key] as number[]) ?? []).includes(o.value as number)
+                    ? 'border-[#153131] bg-[#E9F3F2] text-[#153131] font-medium'
+                    : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'"
                 >
-                  ✕
+                  <input
+                    type="checkbox"
+                    class="accent-[#153131]"
+                    :checked="((editing[f.key] as number[]) ?? []).includes(o.value as number)"
+                    @change="toggleMulti(f.key, o.value as number)"
+                  />
+                  {{ o.label }}
+                </label>
+                <span v-if="!optionsFor(f).length" class="text-sm text-[#667085]">
+                  Nincs mit választani – előbb vegyél fel legalább egyet.
+                </span>
+              </div>
+
+              <div v-else-if="f.type === 'paragraphs'" class="flex flex-col gap-2">
+                <div
+                  v-for="(_, i) in (editing[f.key] as string[])"
+                  :key="i"
+                  class="flex items-start gap-2"
+                >
+                  <textarea
+                    v-model="(editing[f.key] as string[])[i]"
+                    rows="3"
+                    :class="`${inputBase} flex-1 border-[#D0D5DD]`"
+                  />
+                  <button
+                    class="h-9 w-9 shrink-0 rounded-lg border border-[#D9DCE1] text-[#667085] hover:bg-[#F9FAFB] transition-colors"
+                    @click="(editing[f.key] as string[]).splice(i, 1)"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <button
+                  class="self-start rounded-lg border border-dashed border-[#D0D5DD] px-3 py-1.5 text-sm font-semibold text-[#153131] hover:bg-[#F9FAFB] transition-colors"
+                  @click="(editing[f.key] as string[]).push('')"
+                >
+                  + Bekezdés
                 </button>
               </div>
-              <button
-                class="self-start rounded-lg border border-dashed border-[#E4E4DE] px-3 py-1.5 text-sm font-semibold text-[#153131]"
-                @click="(editing[f.key] as string[]).push('')"
-              >
-                + Bekezdés
-              </button>
-            </div>
 
-            <p v-if="fieldErrors[f.key]" class="mt-1 text-xs font-semibold text-[#B3261E]">
-              {{ fieldErrors[f.key] }}
-            </p>
-            <p v-else-if="f.hint" class="mt-1 text-xs text-[#6B6660]">{{ f.hint }}</p>
+              <div v-else-if="f.type === 'image'" class="flex items-center gap-3">
+                <div class="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] flex items-center justify-center">
+                  <img v-if="editing[f.key]" :src="editing[f.key] as string" alt="" class="h-full w-full object-cover" />
+                  <svg v-else viewBox="0 0 24 24" class="h-6 w-6 text-[#C4C9D1]" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15l-5-5L5 21M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM8.5 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
+                </div>
+                <div class="flex flex-col items-start gap-1.5">
+                  <label class="cursor-pointer inline-flex items-center gap-1.5 rounded-lg border border-[#D9DCE1] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors">
+                    <input type="file" accept="image/*" class="hidden" @change="uploadImage(f.key, $event)" />
+                    <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" /></svg>
+                    {{ uploading === f.key ? 'Feltöltés…' : (editing[f.key] ? 'Csere' : 'Feltöltés') }}
+                  </label>
+                  <button v-if="editing[f.key]" type="button" class="text-xs font-semibold text-[#B42318]" @click="editing[f.key] = null">
+                    Eltávolítás
+                  </button>
+                </div>
+              </div>
+
+              <p v-if="fieldErrors[f.key]" class="mt-1.5 text-xs font-semibold text-[#B42318]">
+                {{ fieldErrors[f.key] }}
+              </p>
+              <p v-else-if="f.hint" class="mt-1.5 text-xs text-[#667085]">{{ f.hint }}</p>
+            </div>
+            </div>
+          </div>
+
+          <div v-if="warnings.length" class="mt-5 rounded-lg border border-[#FEDF89] bg-[#FFFCF5] p-3.5 text-sm text-[#B54708]">
+            <b class="text-[#93370D]">Érdemes átnézni</b>
+            <ul class="mt-1.5 list-disc pl-5 space-y-0.5">
+              <li v-for="w in warnings" :key="w">{{ w }}</li>
+            </ul>
           </div>
         </div>
 
-        <div v-if="warnings.length" class="mt-5 rounded-lg bg-[#FDF3EA] p-3 text-sm text-[#A6541B]">
-          <b>Érdemes átnézni</b>
-          <ul class="mt-1.5 list-disc pl-5">
-            <li v-for="w in warnings" :key="w">{{ w }}</li>
-          </ul>
-        </div>
-
-        <div class="mt-6 flex flex-wrap justify-end gap-2 border-t border-[#E4E4DE] pt-4">
+        <div class="flex flex-wrap justify-end gap-2 border-t border-[#ECEDEF] px-6 py-4">
           <button
-            class="rounded-lg border border-[#E4E4DE] bg-white px-4 py-2.5 text-sm font-semibold"
+            class="rounded-lg border border-[#D9DCE1] bg-white px-4 py-2.5 text-sm font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors"
             @click="editing = null"
           >
             Mégsem
           </button>
           <button
-            class="rounded-lg bg-[#153131] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+            class="rounded-lg bg-[#153131] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#0f2525] disabled:opacity-40 transition-colors"
             :disabled="saving"
             @click="save"
           >
@@ -399,32 +478,32 @@ const spanClass = (f: Field) =>
       </div>
     </div>
 
-    <!-- archiválás megerősítése -->
+    <!-- Archiválás megerősítése -->
     <div
       v-if="archiving"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-[#171008]/50 p-5"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-[#0C111D]/50 backdrop-blur-sm p-4"
       @click.self="archiving = null"
     >
-      <div class="w-full max-w-md rounded-2xl bg-white p-6">
-        <h3 class="font-bold text-[19px]">Törlés: {{ archiving[def.titleKey] }}</h3>
-        <p class="mt-1 text-sm text-[#6B6660]">
+      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <h3 class="font-bold text-[18px] tracking-tight">Törlés: {{ archiving[def.titleKey] }}</h3>
+        <p class="mt-1 text-sm text-[#667085]">
           Ez a {{ def.singular }} azonnal eltűnik a weboldalról és a foglalható listákból.
         </p>
-        <div class="mt-4 rounded-lg bg-[#E5F7F9] p-3 text-sm text-[#153131]">
+        <div class="mt-4 rounded-lg border border-[#B2E5EA] bg-[#EDFAFB] p-3.5 text-sm text-[#134E52]">
           Fizikai törlés helyett archiválás történik. Amire foglalás vagy számla
           hivatkozik, azt nem lehet valóban törölni – a hivatkozás elszakadna, és
           az elszámolás visszakövethetetlen lenne. Az archivált elem bármikor
           visszaállítható.
         </div>
-        <div class="mt-6 flex justify-end gap-2 border-t border-[#E4E4DE] pt-4">
+        <div class="mt-6 flex justify-end gap-2 border-t border-[#ECEDEF] pt-4">
           <button
-            class="rounded-lg border border-[#E4E4DE] bg-white px-4 py-2.5 text-sm font-semibold"
+            class="rounded-lg border border-[#D9DCE1] bg-white px-4 py-2.5 text-sm font-semibold text-[#344054] hover:bg-[#F9FAFB] transition-colors"
             @click="archiving = null"
           >
             Mégsem
           </button>
           <button
-            class="rounded-lg border border-[#EED9D7] bg-white px-4 py-2.5 text-sm font-semibold text-[#B3261E]"
+            class="rounded-lg bg-[#B42318] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#912018] transition-colors"
             @click="doArchive"
           >
             Törlés
@@ -433,11 +512,25 @@ const spanClass = (f: Field) =>
       </div>
     </div>
 
-    <div
-      v-if="toast"
-      class="fixed bottom-5 left-1/2 -translate-x-1/2 rounded-lg bg-[#153131] px-5 py-3 text-sm font-semibold text-white shadow-lg"
-    >
-      {{ toast }}
-    </div>
+    <Transition name="toast">
+      <div
+        v-if="toast"
+        class="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-lg bg-[#101828] px-5 py-3 text-sm font-semibold text-white shadow-xl"
+      >
+        {{ toast }}
+      </div>
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s, transform 0.2s;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
+}
+</style>
