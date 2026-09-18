@@ -14,9 +14,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      # A foglalási motor tiszta függvény: adatbázis nélkül tesztelhető
-      - name: Foglalási motor tesztjei
+      # A függőségek telepítése NEM hagyható el. A tesztek maguk ugyan
+      # függőség nélkül is futnak (tiszta függvények, csak a node: modulokat
+      # használják), a `prisma validate` viszont a telepített prisma-t igényli –
+      # enélkül az npx nem tudja feloldani, és a lépés elszáll.
+      #
+      # `npm ci`, nem `npm install`: pontosan a lockfile szerint telepít, tehát
+      # a CI ugyanazt ellenőrzi, ami a szerverre kerül.
+      - name: Függőségek telepítése
+        run: npm ci
+
+      - name: Tesztek
         run: npm test
 
       # Ugyanaz több időzónában – a szerver rendszer-időzónája nem
@@ -32,3 +42,6 @@ jobs:
         run: npx prisma validate
         env:
           DATABASE_URL: mysql://user:pass@localhost:3306/v40
+
+      - name: Típusellenőrzés
+        run: npx nuxt typecheck
