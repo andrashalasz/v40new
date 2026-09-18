@@ -25,11 +25,21 @@ export default function LoginScreen() {
       if (router.canGoBack()) router.back()
       else router.replace('/fiok')
     } catch (e) {
-      // A szerver hibaüzenetei egyelőre csak magyarul léteznek, ezért idegen
-      // nyelven a saját, lefordított üzenetünket mutatjuk. Magyarul viszont a
-      // szerveré a pontosabb (megmondja, ha pl. a fiók deaktivált).
-      const fromServer = e instanceof ApiError ? e.message : ''
-      setError(locale === 'hu' && fromServer ? fromServer : t('signIn.failed'))
+      const err = e instanceof ApiError ? e : null
+
+      // A HÁLÓZATI hibát (status 0) mindig a saját üzenetével mutatjuk, nyelvtől
+      // függetlenül. Enélkül egy elérhetetlen szerver "A belépés nem sikerült"
+      // néven jelenne meg – ami rossz jelszóra utal, és a felhasználó (vagy a
+      // fejlesztő) a hibás helyen keresné a bajt. Pontosan ebbe futottunk bele
+      // az emulátoron.
+      if (err?.status === 0) {
+        setError(err.message)
+      } else {
+        // A szerver hibaüzenetei egyelőre csak magyarul léteznek, ezért idegen
+        // nyelven a saját, lefordított üzenetünket mutatjuk. Magyarul viszont a
+        // szerveré a pontosabb (megmondja, ha pl. a fiók deaktivált).
+        setError(locale === 'hu' && err?.message ? err.message : t('signIn.failed'))
+      }
     } finally {
       setBusy(false)
     }
