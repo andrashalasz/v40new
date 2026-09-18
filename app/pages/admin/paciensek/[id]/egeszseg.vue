@@ -50,6 +50,8 @@ type Category = {
 type Payload = {
   patient: { id: number; firstName: string | null; lastName: string | null; email: string; birthDate: string | null }
   days: number
+  doctors: { id: number; email: string; name: string }[]
+  totalMetricCount: number
   sync: { platform: string; lastSyncedDay: string | null; lastSyncAt: string }[]
   treatments: { id: number; startsAt: string; service: { title: string }; practitioner: { name: string } | null }[]
   compare: { appointmentId: number; day: string; windowDays: number; title: string; practitioner: string | null } | null
@@ -151,6 +153,38 @@ const arrow = (v: number | null) => (v === null ? '' : v > 0 ? '▲' : v < 0 ? '
     </div>
 
     <template v-else-if="data">
+      <!-- Nincs adat: a leggyakoribb ok, hogy másik FIÓKKAL szinkronizáltak.
+           Az adat a felhasználói azonosítóhoz tartozik, nem az e-mail címhez –
+           ha az e-mail közben megváltozott, az adat ott maradt, ahol volt. -->
+      <div
+        v-if="data.totalMetricCount === 0"
+        class="mb-4 p-4 rounded-xl border border-[#FEC84B] bg-[#FFFCF5] text-[#B54708] text-sm"
+      >
+        <strong>Ehhez a fiókhoz nem érkezett egészségügyi adat.</strong>
+        Az adat mindig ahhoz a fiókhoz kerül, amellyel a páciens az appban be volt jelentkezve
+        a szinkronizáláskor – nem az e-mail címhez. Ha a páciensnek több fiókja van,
+        nézd meg a többit is a Páciensek listában (ott látszik, melyikhez van adat).
+      </div>
+
+      <!-- Kik látják orvosként. Enélkül nem derül ki, MIÉRT nem lát valaki adatot. -->
+      <div
+        v-if="!data.doctors.length"
+        class="mb-4 p-4 rounded-xl border border-[#FEC84B] bg-[#FFFCF5] text-[#B54708] text-sm"
+      >
+        <strong>Ehhez a pácienshez nincs orvos rendelve.</strong>
+        Csak a hozzárendelt orvos látja ezeket az adatokat (a staff mindenkit lát).
+        Hozzárendelés: Felhasználók → a páciens Adatlapja.
+        <span class="block mt-1">
+          Figyelem: a <em>szakember</em> (akire foglalni lehet) és az <em>orvos</em>
+          (aki belép a felületre) két külön dolog. Csak az utóbbi lát egészségügyi adatot.
+        </span>
+      </div>
+      <div v-else class="mb-4 flex flex-wrap gap-2 text-xs text-[#667085]">
+        <span class="px-2.5 py-1.5 rounded-lg bg-[#E9F3F2] border border-[#CBE3E0] text-[#153131]">
+          Látja: {{ data.doctors.map((d) => d.name).join(', ') }}
+        </span>
+      </div>
+
       <!-- Szinkron állapota -->
       <div class="mb-4 flex flex-wrap gap-2 text-xs text-[#667085]">
         <span v-if="!data.sync.length" class="px-2.5 py-1.5 rounded-lg bg-[#F9FAFB] border border-[#ECEDEF]">

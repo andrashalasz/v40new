@@ -2,8 +2,8 @@ import { prisma } from '~~/server/utils/prisma'
 import { requireAdmin } from '~~/server/utils/guard'
 
 /**
- * Regisztrált ügyfelek listája az adminnak, minden lényeges adattal.
- * Csak a USER szerepkör (a STAFF/ADMIN nem ügyfél). A foglalások számát is
+ * Regisztrált páciensek listája az adminnak, minden lényeges adattal.
+ * Csak a USER szerepkör (a STAFF/ADMIN nem páciens). A foglalások számát is
  * visszaadjuk, hogy az admin lássa, ki aktív.
  */
 export default defineEventHandler(async (event) => {
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
       marketingConsentAt: true,
       privacyAcceptedAt: true,
       createdAt: true,
-      _count: { select: { appointments: true } },
+      _count: { select: { appointments: true, healthMetrics: true, patientLinks: true } },
     },
   })
 
@@ -38,6 +38,10 @@ export default defineEventHandler(async (event) => {
       emailVerified: Boolean(u.emailVerifiedAt),
       marketingConsent: Boolean(u.marketingConsentAt),
       privacyAcceptedAt: u.privacyAcceptedAt,
+      // Melyik fiókhoz érkezett egészségügyi adat, és van-e hozzárendelt orvos.
+      // Több fiók esetén enélkül nem deríthető ki, melyikben van az adat.
+      healthMetrics: u._count.healthMetrics,
+      doctorCount: u._count.patientLinks,
       createdAt: u.createdAt,
       appointmentCount: u._count.appointments,
     })),

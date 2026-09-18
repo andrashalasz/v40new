@@ -13,6 +13,8 @@ interface Customer {
   privacyAcceptedAt: string | null
   createdAt: string
   appointmentCount: number
+  healthMetrics: number
+  doctorCount: number
 }
 
 const { data, status } = await useFetch<{ items: Customer[] }>('/api/admin/customers')
@@ -39,7 +41,7 @@ const d = (iso: string | null) =>
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-[#FAFAFB]">
-              <th v-for="h in ['Név', 'E-mail', 'Telefon', 'Foglalás', 'Regisztrált', 'Hírlevél', 'Létrehozva', '']" :key="h"
+              <th v-for="h in ['Név', 'E-mail', 'Telefon', 'Foglalás', 'Regisztrált', 'Health adat', 'Orvos', 'Létrehozva', '']" :key="h"
                 class="border-b border-[#ECEDEF] py-3 px-4 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[#667085] whitespace-nowrap">
                 {{ h }}
               </th>
@@ -63,6 +65,18 @@ const d = (iso: string | null) =>
                   {{ c.marketingConsent ? 'Kér' : 'Nem' }}
                 </span>
               </td>
+              <td class="py-3 px-4">
+                <span :class="c.healthMetrics ? 'bg-[#E9F3F2] text-[#153131]' : 'bg-[#F2F4F7] text-[#667085]'"
+                  class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold">
+                  {{ c.healthMetrics ? c.healthMetrics + ' nap' : '—' }}
+                </span>
+              </td>
+              <td class="py-3 px-4">
+                <span :class="c.doctorCount ? 'bg-[#E9F3F2] text-[#153131]' : 'bg-[#FFFCF5] text-[#B54708]'"
+                  class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold">
+                  {{ c.doctorCount ? c.doctorCount : 'nincs' }}
+                </span>
+              </td>
               <td class="py-3 px-4 text-[#475467] whitespace-nowrap">{{ d(c.createdAt) }}</td>
               <td class="py-3 px-4 whitespace-nowrap">
                 <NuxtLink
@@ -72,7 +86,7 @@ const d = (iso: string | null) =>
               </td>
             </tr>
             <tr v-if="!items.length">
-              <td colspan="8" class="py-10 px-4 text-center text-[#667085]">Még nincs egy ügyfél sem.</td>
+              <td colspan="10" class="py-10 px-4 text-center text-[#667085]">Még nincs egy páciens sem.</td>
             </tr>
           </tbody>
         </table>

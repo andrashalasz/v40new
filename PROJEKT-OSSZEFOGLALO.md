@@ -80,19 +80,40 @@ most elindulnak**.
 
 | Szakasz | Mikor | Mi történik |
 |---|---|---|
-| **1. Belső teszt** | szept. 22 – okt. 3 | A csapat végigpróbálja a foglalást, fizetést, számlázást a tesztrendszerben. Hibajavítás. |
-| **2. Éles weboldal** | **okt. 6.** | A honlap élesedik a valódi foglalással. Az app még nem. |
-| **3. Zárt app-teszt** | okt. 6 – okt. 24 | 5–10 valódi páciens TestFlighten és Androidon. Itt derülnek ki a valós használati hibák. |
-| **4. Store-beadás** | okt. 27. | A javított verzió beadása mindkét store-ba. |
-| **5. GO LIVE – app** | **nov. 10.** | Nyilvános megjelenés mindkét platformon. |
-| **6. Egészségügyi modul élesítése** | nov. 24. | Csak ha a Google nyilatkozat addigra megvan. |
+| **0. Előkészítés** | szept. 22 – okt. 16 | Hátralévő fejlesztés (appon belüli fizetés, push). **Párhuzamosan: a Google egészségügyi nyilatkozat beadása, a Stripe és Számlázz.hu szerződések, a DPIA indítása.** |
+| **1. Belső teszt** | okt. 19 – okt. 30 | A csapat végigpróbálja a foglalást, fizetést, számlázást a tesztrendszerben. Hibajavítás. |
+| **2. Éles weboldal** | **nov. 2.** | A honlap élesedik a valódi foglalással. Az app még nem. |
+| **3. Zárt app-teszt** | nov. 2 – nov. 20 | 5–10 valódi páciens TestFlighten és Androidon. Itt derülnek ki a valós használati hibák. |
+| **4. Store-beadás** | nov. 23. | A javított verzió beadása mindkét store-ba. |
+| **5. GO LIVE – app** | **dec. 5.** | Nyilvános megjelenés mindkét platformon. |
+| **6. Egészségügyi modul élesítése** | **jan. 12.** | Csak ha a Google nyilatkozat addigra megvan. |
 
-**Go live az éles weboldallal: október 6.**
-**Go live az alkalmazásokkal: november 10.**
+**Go live az éles weboldallal: november 2.**
+**Go live az alkalmazásokkal: december 5.**
 
-A 6. szakasz dátuma a legbizonytalanabb, mert nem rajtunk múlik. Ezért van
-külön: **az app nem várja meg** – az egészségügyi fül bekapcsolható később,
-appfrissítéssel.
+### Miért december 5. és nem december 20.
+
+Az Apple minden évben bejelent egy **ünnepi időszakot** (jellemzően december
+20-tól az év végéig), amikor a kiadások feldolgozása **szünetel vagy erősen
+lelassul**. Aki abba a sávba ad be, januárig várhat.
+
+Ezért van a store-beadás november 23-án: így marad **két hét ráhagyás** egy
+esetleges elutasításra, és a megjelenés még bőven az ünnepi leállás előtt van.
+
+### Miért januárban az egészségügyi modul
+
+Az eredeti terv szerint ez két héttel az app után jött volna – az mostani
+eltolással **december 19-re esne, vagyis pont az ünnepi leállásba**. Egy
+egészségügyi adatokat kezelő modult a leállás előtti napokban kiadni rossz
+ötlet: ha elutasítják, három hétig nincs javítási lehetőség.
+
+**Január 12. a biztonságos dátum.** Ha a Google nyilatkozat hamarabb megvan és
+a zárt teszt jól megy, december 15-re is előrehozható – de ezt csak akkor
+érdemes, ha minden zöld.
+
+A 6. szakasz dátuma egyébként is a legbizonytalanabb, mert nem rajtunk múlik.
+Ezért van külön: **az app nem várja meg** – az egészségügyi fül bekapcsolható
+később, appfrissítéssel.
 
 ---
 

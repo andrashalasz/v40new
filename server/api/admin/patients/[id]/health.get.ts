@@ -45,7 +45,7 @@ export default defineEventHandler(async (event) => {
   const from = new Date(Date.now() - days * 86400_000)
   from.setUTCHours(0, 0, 0, 0)
 
-  const [patient, consents, rows, sync, treatments] = await Promise.all([
+  const [patient, consents, rows, sync, treatments, doctors] = await Promise.all([
     prisma.user.findUnique({
       where: { id },
       select: { id: true, firstName: true, lastName: true, email: true, birthDate: true },
@@ -84,6 +84,19 @@ export default defineEventHandler(async (event) => {
         startsAt: true,
         service: { select: { title: true } },
         practitioner: { select: { name: true } },
+      },
+    }),
+    // Kik látják ezt a pácienst orvosként. Enélkül nem derül ki, MIÉRT nem
+    // látja egy orvos az adatot: azért, mert nincs hozzárendelve.
+    //
+    // Fontos különbség, ami könnyen összekeverhető: a SZAKEMBER
+    // (Practitioner) a foglaláshoz tartozik, és nem lép be a felületre. Az
+    // ORVOS egy felhasználói fiók, DOCTOR szerepkörrel. Csak az utóbbi lát
+    // egészségügyi adatot.
+    prisma.patientDoctor.findMany({
+      where: { patientId: id },
+      select: {
+        doctor: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
     }),
   ])
@@ -249,6 +262,13 @@ export default defineEventHandler(async (event) => {
     days,
     sync,
     treatments,
+    doctors: doctors.map((d) => ({
+      id: d.doctor.id,
+      email: d.doctor.email,
+      name: [d.doctor.lastName, d.doctor.firstName].filter(Boolean).join(' ') || d.doctor.email,
+    })),
+    /** Hány napi érték van összesen – a szűrt időszaktól függetlenül. */
+    totalMetricCount: await prisma.healthDailyMetric.count({ where: { userId: id } }),
     compare: chosen
       ? {
           appointmentId: chosen.id,
