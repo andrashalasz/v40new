@@ -18,17 +18,35 @@ interface P {
   vatRate: number
 }
 
-const { data: services } = await useFetch<P[]>('/api/products')
-const { data: types } = await useFetch<string[]>('/api/products/types')
+const { t } = await useContent()
+const locale = useLocale()
 
-const filter = ref('Minden')
-const list = computed(() =>
-  (services.value ?? []).filter((s) => filter.value === 'Minden' || s.type === filter.value),
-)
+// A /api/products/types { value, label } párokat ad vissza: a `value` a stabil
+// (magyar) szűrőkulcs, a `label` a kért nyelvű címke. Korábban itt `string[]`
+// volt a feltételezett alak, ezért a gombokra a nyers objektum került ki.
+const { data: types } = await useFetch<{ value: string, label: string }[]>('/api/products/types', {
+  query: { locale },
+  watch: [locale],
+})
+
+// A szűrés a szerveren történik a magyar kategórianévvel. Kliensoldalon nem
+// lehet szűrni, mert idegen nyelven a kezelés `type` mezője már a fordított
+// nevet tartalmazza, a szűrőkulcs viszont magyar marad.
+const filter = ref('')
+const { data: list } = await useFetch<P[]>('/api/products', {
+  query: { locale, type: filter },
+  watch: [locale, filter],
+  default: () => [],
+})
+
+const chips = computed(() => [
+  { value: '', label: t('common.all', 'Minden') },
+  ...(types.value ?? []),
+])
 const Ft = (n: number) => new Intl.NumberFormat('hu-HU').format(n) + ' Ft'
 
 useSeoMeta({
-  title: 'Időpontfoglalás | V40 Vital',
+  title: () => `${t('common.book', 'Időpontfoglalás')} | V40 Vital`,
   description:
     'Válaszd ki a kezelést, és foglalj időpontot online. Szabad időpontok valós időben, azonnali visszaigazolással.',
 })
@@ -52,15 +70,15 @@ useSeoMeta({
     <div class="w-full max-w-[1440px] mx-auto p-4 lg:px-0">
       <div class="flex flex-wrap gap-2 mb-7">
         <button
-          v-for="t in ['Minden', ...(types ?? [])]"
-          :key="t"
+          v-for="c in chips"
+          :key="c.value"
           class="rounded-full px-4 py-2 text-[14px] border"
-          :class="t === filter
+          :class="c.value === filter
             ? 'bg-[#153131] border-[#153131] text-white font-semibold'
             : 'bg-white border-[#0000001A] text-[#00000080]'"
-          @click="filter = t"
+          @click="filter = c.value"
         >
-          {{ t }}
+          {{ c.label }}
         </button>
       </div>
 
