@@ -10,19 +10,14 @@
       "ios": { "simulator": false },
       "android": { "buildType": "apk" }
     },
-
-    "// android-apk": "Telepíthető APK, ami nem megy át a Play Console-on. Átnézésre ez a leggyorsabb: a linket megnyitva a telefon letölti és telepíti (az Androidon engedélyezni kell az ismeretlen forrásból telepítést).",
     "android-apk": {
       "distribution": "internal",
       "android": { "buildType": "apk" }
     },
-
-    "// testflight": "iOS kiadási build a TestFlighthoz. A BELSŐ tesztelőkhöz nem kell Apple-review.",
     "testflight": {
       "extends": "production",
       "ios": { "buildConfiguration": "Release" }
     },
-
     "production": {
       "autoIncrement": true,
       "ios": { "buildConfiguration": "Release" },
@@ -30,10 +25,6 @@
     }
   },
   "submit": {
-    "production": {
-      "ios": {
-        "//": "Az Apple ID-t és a csapat-azonosítót az `eas submit` interaktívan bekéri. CI-ben App Store Connect API kulcsot használj, ne jelszót."
-      }
-    }
+    "production": {}
   }
 }
