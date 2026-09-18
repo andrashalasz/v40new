@@ -6,11 +6,19 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
   type TextInputProps,
+  type ViewStyle,
 } from 'react-native'
-import { colors, radius, spacing } from '../theme'
+import { colors, elevation, radius, spacing, type } from '../theme'
 
-/** Egységes elemek, hogy a képernyők ne találjanak ki mindig új stílust. */
+/**
+ * Az alkalmazás elemkészlete.
+ *
+ * Minden képernyő EBBŐL építkezik. Ha egy képernyő saját színt vagy méretet
+ * talál ki, az felületenként más ritmust ad – ez az, amitől egy app
+ * összedobottnak hat, még ha minden elem külön-külön rendben is van.
+ */
 
 export function Button({
   label,
@@ -18,15 +26,18 @@ export function Button({
   variant = 'primary',
   disabled,
   loading,
+  fullWidth = true,
 }: {
   label: string
   onPress: () => void
-  variant?: 'primary' | 'secondary'
+  variant?: 'primary' | 'secondary' | 'quiet'
   disabled?: boolean
   loading?: boolean
+  fullWidth?: boolean
 }) {
   const off = disabled || loading
   const primary = variant === 'primary'
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -36,7 +47,10 @@ export function Button({
       disabled={off}
       style={({ pressed }) => [
         s.btn,
-        primary ? s.btnPrimary : s.btnSecondary,
+        fullWidth && { alignSelf: 'stretch' },
+        primary && s.btnPrimary,
+        variant === 'secondary' && s.btnSecondary,
+        variant === 'quiet' && s.btnQuiet,
         off && s.btnOff,
         pressed && !off && s.btnPressed,
       ]}
@@ -44,7 +58,7 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={primary ? colors.onInk : colors.ink} />
       ) : (
-        <Text style={[s.btnLabel, primary ? s.btnLabelPrimary : s.btnLabelSecondary]}>
+        <Text style={[type.button, primary ? s.btnLabelPrimary : s.btnLabelSecondary]}>
           {label}
         </Text>
       )}
@@ -52,8 +66,17 @@ export function Button({
   )
 }
 
-export function Card({ children, style }: { children: ReactNode; style?: object }) {
-  return <View style={[s.card, style]}>{children}</View>
+export function Card({
+  children,
+  style,
+  padded = true,
+}: {
+  children: ReactNode
+  style?: StyleProp<ViewStyle>
+  /** Kikapcsolható, ha a kártya teljes szélességű képet tartalmaz. */
+  padded?: boolean
+}) {
+  return <View style={[s.card, padded && s.cardPadded, style]}>{children}</View>
 }
 
 export function Chip({
@@ -78,6 +101,15 @@ export function Chip({
   )
 }
 
+/** Kis jelölő a kártyákon (időtartam, kategória). */
+export function Tag({ text }: { text: string }) {
+  return (
+    <View style={s.tag}>
+      <Text style={s.tagText}>{text}</Text>
+    </View>
+  )
+}
+
 export function Field({
   label,
   error,
@@ -85,7 +117,7 @@ export function Field({
 }: TextInputProps & { label: string; error?: string }) {
   return (
     <View style={{ marginBottom: spacing.md }}>
-      <Text style={s.fieldLabel}>{label}</Text>
+      <Text style={[type.label, { marginBottom: 7 }]}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor={colors.textMuted}
@@ -100,24 +132,42 @@ export function Field({
 /**
  * Töltés, üres lista és hiba – mindhárom ugyanúgy néz ki mindenhol.
  *
- * Ezek a komponensek szándékosan NEM fordítanak maguktól: a szöveget a hívó
- * adja át. Így ugyanaz a doboz használható a "Kezelések betöltése…" és a
- * "Fiók betöltése…" esetére is, és nem kell hozzá minden képernyőhöz külön
- * változat.
+ * A szöveget a hívó adja át: így ugyanaz a doboz szolgál minden képernyőn, és
+ * nem kell hozzá képernyőnként külön változat.
  */
 export function Loading({ label }: { label?: string }) {
   return (
     <View style={s.center}>
       <ActivityIndicator color={colors.ink} />
-      {!!label && <Text style={s.muted}>{label}</Text>}
+      {!!label && <Text style={[type.caption, { marginTop: spacing.sm }]}>{label}</Text>}
     </View>
+  )
+}
+
+/**
+ * Csontváz-töltés a listákhoz.
+ *
+ * A pörgő karika azt üzeni, hogy „várj"; a csontváz azt, hogy „mindjárt itt
+ * van, és így fog kinézni". Ugyanannyi idő, nyugodtabb élmény.
+ */
+export function SkeletonCard() {
+  return (
+    <Card>
+      <View style={[s.skel, { width: '62%', height: 20 }]} />
+      <View style={[s.skel, { width: '92%', height: 13, marginTop: spacing.md }]} />
+      <View style={[s.skel, { width: '78%', height: 13, marginTop: 8 }]} />
+      <View style={s.skelRow}>
+        <View style={[s.skel, { width: 88, height: 30, borderRadius: radius.pill }]} />
+        <View style={[s.skel, { width: 128, height: 48, borderRadius: radius.md }]} />
+      </View>
+    </Card>
   )
 }
 
 export function Empty({ text }: { text: string }) {
   return (
     <Card>
-      <Text style={s.muted}>{text}</Text>
+      <Text style={type.bodyMuted}>{text}</Text>
     </Card>
   )
 }
@@ -144,22 +194,29 @@ export function ErrorBox({
 }
 
 export function H1({ children }: { children: ReactNode }) {
-  return <Text style={s.h1}>{children}</Text>
+  return <Text style={[type.h1, { marginBottom: spacing.sm }]}>{children}</Text>
 }
 
 export function H2({ children }: { children: ReactNode }) {
-  return <Text style={s.h2}>{children}</Text>
+  return <Text style={[type.h2, { marginBottom: 6 }]}>{children}</Text>
+}
+
+/** Szakaszcím a listák fölött – nagyobb levegővel, mint a kártyán belüli cím. */
+export function SectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <Text style={[type.h2, { marginTop: spacing.lg, marginBottom: spacing.sm }]}>{children}</Text>
+  )
 }
 
 export function Muted({ children }: { children: ReactNode }) {
-  return <Text style={s.muted}>{children}</Text>
+  return <Text style={type.bodyMuted}>{children}</Text>
 }
 
 /** Címke–érték sor az összegzésekhez. */
 export function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={s.row}>
-      <Text style={s.rowLabel}>{label}</Text>
+      <Text style={[type.caption, { flexShrink: 0 }]}>{label}</Text>
       <Text style={s.rowValue}>{value}</Text>
     </View>
   )
@@ -172,65 +229,83 @@ const s = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 52, // kényelmes érintési célpont
+    minHeight: 54, // kényelmes érintési célpont
   },
   btnPrimary: { backgroundColor: colors.ink },
   btnSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.ink },
-  btnOff: { opacity: 0.4 },
-  btnPressed: { opacity: 0.85 },
-  btnLabel: { fontSize: 16, fontWeight: '600' },
+  btnQuiet: { backgroundColor: colors.chip },
+  btnOff: { opacity: 0.35 },
+  btnPressed: { opacity: 0.86, transform: [{ scale: 0.995 }] },
   btnLabelPrimary: { color: colors.onInk },
   btnLabelSecondary: { color: colors.ink },
 
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    padding: spacing.lg,
     marginBottom: spacing.md,
+    overflow: 'hidden',
+    ...(elevation.card as object),
   },
+  cardPadded: { padding: spacing.lg },
 
   chip: {
     borderRadius: radius.pill,
     paddingVertical: 10,
     paddingHorizontal: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
     backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   chipOn: { backgroundColor: colors.ink, borderColor: colors.ink },
-  chipText: { fontSize: 14, color: colors.textMuted },
-  chipTextOn: { color: colors.onInk, fontWeight: '600' },
+  chipText: { ...type.caption, color: colors.textMuted },
+  chipTextOn: { color: colors.onInk, fontFamily: type.label.fontFamily },
 
-  fieldLabel: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 6 },
+  tag: {
+    backgroundColor: colors.chip,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  tagText: { ...type.caption, color: colors.ink },
+
   input: {
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: colors.text,
+    paddingVertical: 15,
     backgroundColor: colors.surface,
+    ...type.body,
   },
   inputError: { borderColor: colors.danger },
-  fieldError: { color: colors.danger, fontSize: 13, marginTop: 4 },
+  fieldError: { ...type.caption, color: colors.danger, marginTop: 5 },
 
-  center: { padding: spacing.xl, alignItems: 'center', gap: spacing.sm },
-  muted: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
-  errorText: { color: colors.danger, fontSize: 15, lineHeight: 22 },
+  center: { padding: spacing.xl, alignItems: 'center' },
+  errorText: { ...type.body, color: colors.danger },
 
-  h1: { fontSize: 28, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
-  h2: { fontSize: 19, fontWeight: '700', color: colors.text, marginBottom: 6 },
+  skel: { backgroundColor: colors.chip, borderRadius: radius.sm },
+  skelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+  },
 
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.line,
     gap: spacing.md,
   },
-  rowLabel: { color: colors.textMuted, fontSize: 15 },
-  rowValue: { color: colors.text, fontSize: 15, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  rowValue: {
+    ...type.body,
+    fontFamily: type.label.fontFamily,
+    flexShrink: 1,
+    textAlign: 'right',
+  },
 })

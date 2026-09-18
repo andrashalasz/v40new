@@ -1,24 +1,35 @@
+import { Platform, type TextStyle } from 'react-native'
+
 /**
- * Az arculat színei és méretei – a weboldalról átvéve, hogy az app és a
- * honlap egy rendszernek látsszon, ne két külön terméknek.
+ * ARCULAT
+ *
+ * A színek és a betűk a weboldaléval azonosak (DM Sans a címeknek, Manrope a
+ * szövegnek). Egy prémium szolgáltatás appja attól néz ki drágának, hogy
+ * KEVESEBB dolog van benne, de azok pontosan: egy betűcsalád-pár, egy
+ * kiemelőszín, nagy levegő, lágy mélység – éles keretek és sokféle szürke
+ * helyett.
  */
+
 export const colors = {
-  /** Sötétzöld: gombok, kiemelt felületek */
+  /** Sötétzöld: gombok, címek, kiemelt felületek */
   ink: '#153131',
+  /** Világosabb zöld a másodlagos hangsúlyokhoz */
+  inkSoft: '#2A4F4F',
   /** Szöveg */
   text: '#171008',
-  textMuted: 'rgba(0, 0, 0, 0.5)',
+  textMuted: '#6B6F6E',
   /** Halvány kék: fejlécek, kiemelt sávok */
   tint: '#E5F7F9',
   /** Krém: az oldal háttere */
-  bg: '#F4F4F0',
+  bg: '#F6F5F1',
   surface: '#FFFFFF',
-  border: 'rgba(0, 0, 0, 0.1)',
+  /** Alig látható elválasztó – a hangsúlyos keret olcsóvá teszi a felületet */
+  line: 'rgba(21, 49, 49, 0.08)',
   /** Címke-háttér */
-  chip: 'rgba(47, 115, 242, 0.1)',
+  chip: 'rgba(21, 49, 49, 0.06)',
   danger: '#B3261E',
   success: '#1B5E20',
-  onInk: '#F4F4F0',
+  onInk: '#F6F5F1',
 } as const
 
 export const spacing = {
@@ -27,36 +38,119 @@ export const spacing = {
   md: 16,
   lg: 24,
   xl: 32,
+  xxl: 48,
 } as const
 
 export const radius = {
-  sm: 6,
-  md: 10,
-  lg: 16,
+  sm: 8,
+  md: 12,
+  lg: 20,
+  xl: 28,
   pill: 999,
 } as const
 
 /**
- * Formázók.
+ * Betűcsaládok.
  *
- * Mindegyik kap nyelvet, mert a szám- és dátumalak nyelvenként más: a magyar
- * "2026. szeptember 21.", a német "21. September 2026", az angol
- * "21 September 2026".
+ * A neveket az expo-font tölti be (lásd app/_layout.tsx). Amíg a betűk
+ * betöltődnek, a rendszerbetű látszik – ezért a felület csak a betöltés UTÁN
+ * jelenik meg, különben egy zavaró ugrás lenne.
+ */
+export const fonts = {
+  display: 'DMSans_700Bold',
+  displayMedium: 'DMSans_500Medium',
+  body: 'Manrope_400Regular',
+  bodyMedium: 'Manrope_500Medium',
+  bodySemi: 'Manrope_600SemiBold',
+} as const
+
+/**
+ * Tipográfiai skála.
+ *
+ * Kevés, határozott lépcső. A sok, egymáshoz közeli méret az, amitől egy
+ * felület rendezetlennek – és ezáltal olcsónak – hat.
+ */
+export const type = {
+  display: {
+    fontFamily: fonts.display,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.6,
+    color: colors.text,
+  },
+  h1: {
+    fontFamily: fonts.display,
+    fontSize: 24,
+    lineHeight: 30,
+    letterSpacing: -0.4,
+    color: colors.text,
+  },
+  h2: {
+    fontFamily: fonts.display,
+    fontSize: 18,
+    lineHeight: 24,
+    letterSpacing: -0.2,
+    color: colors.text,
+  },
+  body: { fontFamily: fonts.body, fontSize: 15, lineHeight: 23, color: colors.text },
+  bodyMuted: { fontFamily: fonts.body, fontSize: 15, lineHeight: 23, color: colors.textMuted },
+  label: { fontFamily: fonts.bodySemi, fontSize: 13, lineHeight: 18, color: colors.text },
+  caption: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.textMuted },
+  price: {
+    fontFamily: fonts.display,
+    fontSize: 22,
+    lineHeight: 26,
+    letterSpacing: -0.3,
+    color: colors.text,
+  },
+  button: { fontFamily: fonts.bodySemi, fontSize: 15, letterSpacing: 0.1 },
+} satisfies Record<string, TextStyle>
+
+/**
+ * Lágy mélység keret helyett.
+ *
+ * Az éles, sötét keret a legjellemzőbb jel, amiről egy app „házilag
+ * összeraktnak" hat. Egy alig érzékelhető árnyék ugyanazt a tagolást adja,
+ * csak nyugodtabban.
+ */
+export const elevation = {
+  card: Platform.select({
+    ios: {
+      shadowColor: colors.ink,
+      shadowOpacity: 0.07,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 6 },
+    },
+    android: { elevation: 2 },
+    default: {},
+  }),
+  raised: Platform.select({
+    ios: {
+      shadowColor: colors.ink,
+      shadowOpacity: 0.12,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 10 },
+    },
+    android: { elevation: 5 },
+    default: {},
+  }),
+} as const
+
+// --- Formázók ---------------------------------------------------------------
+
+/**
+ * Mindegyik kap nyelvet, mert a szám- és dátumalak nyelvenként más.
  *
  * Az IDŐZÓNA viszont MINDIG Europe/Budapest, függetlenül a telefon nyelvétől
- * és helyétől. A rendelő Budapesten van: egy Bécsben nyaraló magyar vendégnek
- * is a budapesti 10:00-t kell látnia, nem a saját készüléke szerinti időt.
- *
- * A pénznem is marad forint – a kezelés forintban van árazva.
+ * és helyétől: a rendelő Budapesten van, egy Bécsben nyaraló vendégnek is a
+ * budapesti 10:00-t kell látnia.
  */
-
 const TZ = 'Europe/Budapest'
 
-/** "145 000 Ft" */
+/** "145 000 Ft" – keskeny szóközzel, hogy ne törjön sorvégen */
 export const formatPrice = (n: number, locale: string) =>
-  `${new Intl.NumberFormat(locale).format(n)} Ft`
+  `${new Intl.NumberFormat(locale).format(n)} Ft`
 
-/** Teljes időpont, a nap nevével. */
 export const formatDateTime = (iso: string, locale: string) =>
   new Date(iso).toLocaleString(locale, {
     year: 'numeric',
@@ -68,19 +162,12 @@ export const formatDateTime = (iso: string, locale: string) =>
     timeZone: TZ,
   })
 
-/** Csak dátum: "2026. 09. 21." */
 export const formatDate = (iso: string, locale: string) =>
   new Date(iso).toLocaleDateString(locale, { timeZone: TZ })
 
-/** "10:00" – a foglalható idősávokhoz. */
 export const formatTime = (iso: string, locale: string) =>
-  new Date(iso).toLocaleTimeString(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: TZ,
-  })
+  new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: TZ })
 
-/** A naptár napjaihoz: rövid napnév és hónap. */
 export const formatWeekday = (iso: string, locale: string) =>
   new Date(iso).toLocaleDateString(locale, { weekday: 'short', timeZone: TZ })
 

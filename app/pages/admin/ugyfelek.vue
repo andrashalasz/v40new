@@ -27,9 +27,9 @@ const d = (iso: string | null) =>
 <template>
   <div>
     <div class="mb-5">
-      <h1 class="font-bold text-[24px] tracking-tight">Ügyfelek</h1>
+      <h1 class="font-bold text-[24px] tracking-tight">Páciensek</h1>
       <p class="text-[#667085] text-sm mt-0.5">
-        Regisztrált ügyfelek és a foglalásból létrejött fiókok. A „Regisztrált" jelzi, ki adott meg jelszót.
+        Regisztrált páciensek és a foglalásból létrejött fiókok. A „Regisztrált" jelzi, ki adott meg jelszót.
       </p>
     </div>
 

@@ -21,10 +21,10 @@ function flash(m: string) { toast.value = m; setTimeout(() => (toast.value = '')
 
 // --- Új felhasználó ---
 const showNew = ref(false)
-const nf = reactive({ email: '', lastName: '', firstName: '', phone: '', birthDate: '', role: 'USER' as 'USER' | 'DOCTOR', password: '' })
+const nf = reactive({ email: '', lastName: '', firstName: '', phone: '', birthDate: '', role: 'USER' as 'USER' | 'DOCTOR' | 'STAFF' | 'ADMIN', password: '' })
 const nfErr = ref('')
 const creating = ref(false)
-function openNew() { Object.assign(nf, { email: '', lastName: '', firstName: '', phone: '', birthDate: '', role: roleFilter.value === 'DOCTOR' ? 'DOCTOR' : 'USER', password: '' }); nfErr.value = ''; showNew.value = true }
+function openNew() { Object.assign(nf, { email: '', lastName: '', firstName: '', phone: '', birthDate: '', role: roleFilter.value, password: '' }); nfErr.value = ''; showNew.value = true }
 async function createUser() {
   creating.value = true; nfErr.value = ''
   try {
@@ -38,6 +38,60 @@ async function createUser() {
     const err = e as { data?: { statusMessage?: string }; statusMessage?: string }
     nfErr.value = err.data?.statusMessage ?? err.statusMessage ?? 'A létrehozás nem sikerült.'
   } finally { creating.value = false }
+}
+
+// --- Szerkesztés (e-mail, szerepkör, jelszó) ---
+const showEdit = ref(false)
+const ef = reactive({
+  id: 0, email: '', lastName: '', firstName: '', phone: '',
+  role: 'USER' as 'USER' | 'DOCTOR' | 'STAFF' | 'ADMIN', password: '',
+})
+const efErr = ref('')
+const saving = ref(false)
+
+function openEdit(u: UserRow) {
+  const [lastName = '', ...rest] = (u.name || '').split(' ')
+  Object.assign(ef, {
+    id: u.id, email: u.email, lastName, firstName: rest.join(' '),
+    phone: u.phone ?? '', role: u.role as typeof ef.role, password: '',
+  })
+  efErr.value = ''
+  showEdit.value = true
+}
+
+async function saveEdit() {
+  saving.value = true; efErr.value = ''
+  try {
+    await $fetch(`/api/admin/users/${ef.id}`, { method: 'PATCH', body: {
+      email: ef.email,
+      lastName: ef.lastName || null,
+      firstName: ef.firstName || null,
+      phone: ef.phone || null,
+      role: ef.role,
+      // Üres mező = nem módosítjuk a jelszót.
+      password: ef.password || undefined,
+    } })
+    showEdit.value = false; flash('Mentve.'); await refresh()
+  } catch (e: unknown) {
+    const err = e as { data?: { statusMessage?: string }; statusMessage?: string }
+    efErr.value = err.data?.statusMessage ?? err.statusMessage ?? 'A mentés nem sikerült.'
+  } finally { saving.value = false }
+}
+
+/**
+ * Törlés – a szerver utasítja vissza, ha bármi kapcsolódik a felhasználóhoz,
+ * és meg is mondja, mi. Ezt az üzenetet mutatjuk, mert az a hasznos
+ * információ, nem egy általános "nem sikerült".
+ */
+async function removeUser(u: UserRow) {
+  if (!confirm(`Biztosan törlöd? ${u.email}\n\nEz nem vonható vissza.`)) return
+  try {
+    await $fetch(`/api/admin/users/${u.id}`, { method: 'DELETE' })
+    flash('Törölve.'); await refresh()
+  } catch (e: unknown) {
+    const err = e as { data?: { statusMessage?: string }; statusMessage?: string }
+    alert(err.data?.statusMessage ?? err.statusMessage ?? 'A törlés nem sikerült.')
+  }
 }
 
 async function toggleActive(u: UserRow) {
@@ -72,7 +126,7 @@ async function assign(action: 'add' | 'remove', doctorId: number) {
   assignDoctorId.value = 0
 }
 
-const roleLabel: Record<string, string> = { USER: 'Ügyfél', DOCTOR: 'Orvos', STAFF: 'Munkatárs', ADMIN: 'Admin' }
+const roleLabel: Record<string, string> = { USER: 'Páciens', DOCTOR: 'Orvos', STAFF: 'Munkatárs', ADMIN: 'Admin' }
 </script>
 
 <template>
@@ -80,7 +134,7 @@ const roleLabel: Record<string, string> = { USER: 'Ügyfél', DOCTOR: 'Orvos', S
     <div class="mb-5 flex items-start justify-between gap-4">
       <div>
         <h1 class="font-bold text-[24px] tracking-tight">Felhasználók</h1>
-        <p class="text-[#667085] text-sm mt-0.5">Ügyfelek és orvosok kezelése: felvitel, aktiválás, adatlap, orvos-hozzárendelés.</p>
+        <p class="text-[#667085] text-sm mt-0.5">Páciensek és orvosok kezelése: felvitel, aktiválás, adatlap, orvos-hozzárendelés.</p>
       </div>
       <button class="rounded-lg bg-[#153131] text-white px-4 py-2.5 text-sm font-semibold shrink-0" @click="openNew">+ Új felhasználó</button>
     </div>
@@ -117,14 +171,53 @@ const roleLabel: Record<string, string> = { USER: 'Ügyfél', DOCTOR: 'Orvos', S
               </td>
               <td class="py-3 px-4 text-right whitespace-nowrap">
                 <button class="text-[#153131] underline text-xs font-semibold mr-3" @click="openDetail(u.id)">Adatlap</button>
-                <button class="text-xs font-semibold" :class="u.isActive ? 'text-[#B42318]' : 'text-[#1F6B4A]'" @click="toggleActive(u)">
+                <button class="text-[#153131] underline text-xs font-semibold mr-3" @click="openEdit(u)">Szerkeszt</button>
+                <button class="text-xs font-semibold mr-3" :class="u.isActive ? 'text-[#B42318]' : 'text-[#1F6B4A]'" @click="toggleActive(u)">
                   {{ u.isActive ? 'Deaktivál' : 'Aktivál' }}
                 </button>
+                <!-- A törlés csak akkor sikerül, ha semmi nem kapcsolódik a
+                     felhasználóhoz; ezt a SZERVER dönti el, nem a felület. -->
+                <button class="text-xs font-semibold text-[#B42318]" @click="removeUser(u)">Törlés</button>
               </td>
             </tr>
             <tr v-if="!items.length"><td colspan="6" class="py-10 px-4 text-center text-[#667085]">Nincs találat.</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Szerkesztés: e-mail, szerepkör, jelszó -->
+    <div v-if="showEdit" class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" @click.self="showEdit = false">
+      <div class="w-full max-w-[480px] my-8 rounded-xl bg-white p-6 shadow-xl">
+        <h2 class="font-bold text-[19px] mb-4">Felhasználó szerkesztése</h2>
+        <div class="space-y-3">
+          <label class="block text-sm font-semibold text-[#344054]">Szerep
+            <select v-model="ef.role" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm font-normal">
+              <option value="USER">Páciens</option><option value="DOCTOR">Orvos</option><option value="STAFF">Munkatárs</option><option value="ADMIN">Admin</option>
+            </select>
+          </label>
+          <div class="flex gap-3">
+            <input v-model="ef.lastName" placeholder="Vezetéknév" class="flex-1 rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+            <input v-model="ef.firstName" placeholder="Keresztnév" class="flex-1 rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+          </div>
+          <label class="block text-sm text-[#344054]">E-mail (ezzel lép be)
+            <input v-model="ef.email" type="email" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+          </label>
+          <input v-model="ef.phone" placeholder="Telefonszám" class="w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+          <label class="block text-sm text-[#344054]">Új jelszó (üresen hagyva marad a régi)
+            <input v-model="ef.password" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
+          </label>
+          <p class="text-[#667085] text-xs">
+            Az e-mail, a szerepkör vagy a jelszó módosítása után az érintett mobil eszközei kijelentkeznek.
+          </p>
+          <p v-if="efErr" class="text-[#B42318] text-sm">{{ efErr }}</p>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+          <button class="px-4 py-2 text-sm font-semibold text-[#475467]" @click="showEdit = false">Mégse</button>
+          <button class="rounded-lg bg-[#153131] text-white px-4 py-2 text-sm font-semibold disabled:opacity-60" :disabled="saving" @click="saveEdit">
+            {{ saving ? 'Mentés…' : 'Mentés' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -136,7 +229,7 @@ const roleLabel: Record<string, string> = { USER: 'Ügyfél', DOCTOR: 'Orvos', S
           <div class="flex gap-3">
             <label class="flex-1 text-sm font-semibold text-[#344054]">Szerep
               <select v-model="nf.role" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm font-normal">
-                <option value="USER">Ügyfél</option><option value="DOCTOR">Orvos</option>
+                <option value="USER">Páciens</option><option value="DOCTOR">Orvos</option><option value="STAFF">Munkatárs</option><option value="ADMIN">Admin</option>
               </select>
             </label>
           </div>
@@ -149,7 +242,7 @@ const roleLabel: Record<string, string> = { USER: 'Ügyfél', DOCTOR: 'Orvos', S
           <label class="block text-sm text-[#344054]">Születési dátum {{ nf.role === 'USER' ? '(szakvéleményhez ajánlott)' : '' }}
             <input v-model="nf.birthDate" type="date" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
           </label>
-          <label class="block text-sm text-[#344054]">Jelszó {{ nf.role === 'DOCTOR' ? '(kötelező – az orvos belép)' : '(opcionális)' }}
+          <label class="block text-sm text-[#344054]">Jelszó {{ nf.role === 'USER' ? '(opcionális)' : '(kötelező – belép a felületre)' }}
             <input v-model="nf.password" type="password" autocomplete="new-password" class="mt-1 w-full rounded-lg border border-[#D0D5DD] px-3 py-2 text-sm" />
           </label>
           <p v-if="nfErr" class="text-[#B42318] text-sm">{{ nfErr }}</p>

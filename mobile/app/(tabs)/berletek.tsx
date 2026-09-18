@@ -145,7 +145,7 @@ const st = StyleSheet.create({
   barTrack: {
     height: 8,
     borderRadius: radius.pill,
-    backgroundColor: colors.border,
+    backgroundColor: colors.line,
     overflow: 'hidden',
     marginBottom: spacing.sm,
   },

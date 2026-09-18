@@ -381,7 +381,7 @@ const st = StyleSheet.create({
   option: {
     borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
     minHeight: 48,
@@ -394,7 +394,7 @@ const st = StyleSheet.create({
   day: {
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     paddingVertical: 10,
     paddingHorizontal: 14,
     alignItems: 'center',
@@ -407,7 +407,7 @@ const st = StyleSheet.create({
   slot: {
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
     minWidth: 78,
@@ -418,7 +418,7 @@ const st = StyleSheet.create({
 
   radio: {
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.line,
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.sm,

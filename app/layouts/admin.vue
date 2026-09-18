@@ -43,13 +43,13 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     ],
   },
   {
-    label: 'Ügyfelek',
+    label: 'Páciensek',
     items: [
       { to: '/admin/felhasznalok', label: 'Felhasználók', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
       { to: '/admin/foglalasok', label: 'Foglalások', icon: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z' },
       { to: '/admin/eladott-berletek', label: 'Eladott bérletek', icon: 'M2 5h20v14H2zM2 10h20M6 15h4' },
       { to: '/admin/szamlak', label: 'Számlák', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M9 13h6M9 17h6' },
-      { to: '/admin/ugyfelek', label: 'Ügyfelek', icon: 'M17 21v-2a4 4 0 0 0-3-3.87M9 21v-2a4 4 0 0 1 3-3.87M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+      { to: '/admin/ugyfelek', label: 'Páciensek', icon: 'M17 21v-2a4 4 0 0 0-3-3.87M9 21v-2a4 4 0 0 1 3-3.87M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
       { to: '/admin/szakvelemenyek', label: 'Szakvélemények', icon: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8' },
     ],
   },

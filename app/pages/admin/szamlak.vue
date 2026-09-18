@@ -71,7 +71,7 @@ async function retry(inv: Invoice) {
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-[#FAFAFB]">
-              <th v-for="h in ['Számlaszám', 'Ügyfél', 'Rendelés', 'Összeg', 'Szolgáltató', 'NAV', 'Kiállítva', '']" :key="h"
+              <th v-for="h in ['Számlaszám', 'Páciens', 'Rendelés', 'Összeg', 'Szolgáltató', 'NAV', 'Kiállítva', '']" :key="h"
                 class="border-b border-[#ECEDEF] py-3 px-4 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[#667085] whitespace-nowrap">
                 {{ h }}
               </th>

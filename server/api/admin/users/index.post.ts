@@ -5,8 +5,13 @@ import { requireAdmin } from '~~/server/utils/guard'
 import { audit } from '~~/server/utils/audit'
 
 /**
- * Új felhasználó felvitele az adminból: ügyfél (USER) vagy orvos (DOCTOR).
- * Orvosnak jelszó kötelező (belép a felületre); ügyfélnél opcionális.
+ * Új felhasználó felvitele az adminból: páciens (USER), orvos (DOCTOR),
+ * munkatárs (STAFF) vagy admin (ADMIN).
+ *
+ * Aki BELÉP a felületre (orvos, munkatárs, admin), annak jelszó kötelező –
+ * jelszó nélküli belépő fiók csak félkész állapotot jelentene. Páciensnél
+ * opcionális: a foglalásból létrejövő fiók is jelszó nélküli, és e-mailes
+ * belépő linkkel használható.
  */
 const body = z.object({
   email: z.string().email().max(200),
@@ -14,17 +19,23 @@ const body = z.object({
   lastName: z.string().max(100).optional(),
   phone: z.string().max(40).optional(),
   birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  role: z.enum(['USER', 'DOCTOR']),
+  role: z.enum(['USER', 'DOCTOR', 'STAFF', 'ADMIN']),
   password: z.string().min(8).max(200).optional(),
 })
+
+/** Ezek a szerepek belépnek a felületre, ezért jelszó nélkül értelmetlenek. */
+const NEEDS_PASSWORD = ['DOCTOR', 'STAFF', 'ADMIN'] as const
 
 export default defineEventHandler(async (event) => {
   const admin = await requireAdmin(event)
   const d = await readValidatedBody(event, body.parse)
   const email = d.email.toLowerCase()
 
-  if (d.role === 'DOCTOR' && !d.password) {
-    throw createError({ statusCode: 422, statusMessage: 'Orvoshoz jelszó megadása kötelező (a felülethez belép).' })
+  if ((NEEDS_PASSWORD as readonly string[]).includes(d.role) && !d.password) {
+    throw createError({
+      statusCode: 422,
+      statusMessage: 'Ehhez a szerepkörhöz jelszó megadása kötelező (a felülethez belép).',
+    })
   }
 
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } })

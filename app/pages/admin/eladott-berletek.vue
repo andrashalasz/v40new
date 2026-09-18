@@ -72,7 +72,7 @@ async function refund(p: Pass) {
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-[#FAFAFB]">
-              <th v-for="h in ['Bérlet', 'Ügyfél', 'Alkalom', 'Érvényes', 'Ár', 'Státusz', '']" :key="h"
+              <th v-for="h in ['Bérlet', 'Páciens', 'Alkalom', 'Érvényes', 'Ár', 'Státusz', '']" :key="h"
                 class="border-b border-[#ECEDEF] py-3 px-4 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[#667085] whitespace-nowrap">
                 {{ h }}
               </th>

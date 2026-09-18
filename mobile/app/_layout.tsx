@@ -1,12 +1,23 @@
+import { DMSans_500Medium, DMSans_700Bold } from '@expo-google-fonts/dm-sans'
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+} from '@expo-google-fonts/manrope'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useFonts } from 'expo-font'
 import { router, Stack } from 'expo-router'
+import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { loadBaseUrl } from '../src/api/baseUrl'
 import { AuthProvider } from '../src/auth/AuthContext'
 import { I18nProvider, useI18n } from '../src/i18n'
-import { colors } from '../src/theme'
+import { colors, type } from '../src/theme'
+
+// Az indítókép addig marad, amíg a betűk és a beállítások betöltenek.
+void SplashScreen.preventAutoHideAsync().catch(() => {})
 
 /**
  * Az alkalmazás gyökere: itt élnek a globális szolgáltatók.
@@ -29,6 +40,16 @@ export default function RootLayout() {
       }),
   )
 
+  // A weboldal betűi. Amíg töltődnek, NEM renderelünk: a rendszerbetűről a
+  // márkabetűre váltás látható ugrás lenne, és pont az igényes hatást rontaná.
+  const [fontsLoaded] = useFonts({
+    DMSans_500Medium,
+    DMSans_700Bold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+  })
+
   // A mentett szerver-cím betöltése. Amíg fut, NEM renderelünk semmit: ha a
   // gyerekek előbb indítanák a lekérdezéseiket, azok még a beépített (rossz)
   // címre mennének, és egy hálózati hiba villanna fel indításkor.
@@ -37,7 +58,13 @@ export default function RootLayout() {
     loadBaseUrl().finally(() => setReady(true))
   }, [])
 
-  if (!ready) return null
+  // Az indítóképet csak akkor engedjük el, ha MINDEN készen áll – így a
+  // felhasználó nem lát félkész, ugráló felületet.
+  useEffect(() => {
+    if (ready && fontsLoaded) void SplashScreen.hideAsync().catch(() => {})
+  }, [ready, fontsLoaded])
+
+  if (!ready || !fontsLoaded) return null
 
   return (
     <I18nProvider>
@@ -72,9 +99,13 @@ function Navigation() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: colors.tint },
-        headerTintColor: colors.text,
-        headerTitleStyle: { fontWeight: '700' },
+        // Árnyék nélküli, a tartalommal azonos hátterű fejléc: a szürke sáv és
+        // az elválasztó vonal az, ami a legtöbb appot "rendszer-alapértelmezett"
+        // hatásúvá teszi.
+        headerStyle: { backgroundColor: colors.bg },
+        headerShadowVisible: false,
+        headerTintColor: colors.ink,
+        headerTitleStyle: { fontFamily: type.h2.fontFamily, fontSize: 17 },
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
