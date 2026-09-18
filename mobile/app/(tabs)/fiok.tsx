@@ -7,6 +7,7 @@ import { useI18n } from '../../src/i18n'
 import { useFormat } from '../../src/i18n/format'
 import { colors, spacing } from '../../src/theme'
 import { Button, Card, Empty, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
+import { LanguagePicker } from '../../src/ui/LanguagePicker'
 import { SignInPrompt } from '../../src/ui/SignInPrompt'
 
 export default function AccountScreen() {
@@ -57,6 +58,15 @@ export default function AccountScreen() {
         <H2>{name || t('account.title')}</H2>
         <Row label={t('account.email')} value={profile?.email ?? '—'} />
         <Row label={t('account.phone')} value={profile?.phone ?? '—'} />
+      </Card>
+
+      {/* A nyelv itt bármikor átállítható – az első indításkori választás után
+          ez az egyetlen hely, ahol módosítani lehet. */}
+      <Card>
+        <H2>{t('language.title')}</H2>
+        <View style={{ marginTop: spacing.sm }}>
+          <LanguagePicker />
+        </View>
       </Card>
 
       <H2>{t('account.opinions')}</H2>

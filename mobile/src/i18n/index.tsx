@@ -1,22 +1,22 @@
 import * as Localization from 'expo-localization'
-import { createContext, useCallback, useContext, useMemo } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { setApiLocale, setApiMessages } from '../api/client'
 import { de } from './de'
 import { en } from './en'
+import { loadLocalePreference, saveLocalePreference, type LocalePreference } from './preference'
 import { hu, type StringKey, type Strings } from './strings'
 
 /**
- * Nyelvválasztás: a TELEFON nyelve dönt.
+ * NYELVKEZELÉS
  *
- * Ha a készülék nyelve nem támogatott, ANGOL lesz – nem magyar. Ez szándékos:
- * egy japán telefonnal érkező vendég az angolt legalább eséllyel érti, a
- * magyart nem. (A szerver oldalán ugyanez a lépcső: kért nyelv -> angol ->
+ * Alapértelmezésben a TELEFON nyelve dönt. Ha a készülék nyelve nem
+ * támogatott, ANGOL lesz – nem magyar: egy külföldi vendég az angolt legalább
+ * eséllyel érti. (A szerver oldalán ugyanez a lépcső: kért nyelv -> angol ->
  * magyar, lásd server/utils/i18n.ts.)
  *
- * A készülék nyelvlistáját sorrendben nézzük végig, mert a felhasználó több
- * nyelvet is beállíthat preferencia szerint. Példa: egy "de-AT" (osztrák
- * német) telefon németet kap – a régiót figyelmen kívül hagyjuk.
+ * A felhasználó ezt FELÜLÍRHATJA, és a választása megmarad. Első indításkor
+ * megkérdezzük; utána már nem, de a fiókjában bármikor átállíthatja.
  */
 
 export const SUPPORTED = ['hu', 'en', 'de'] as const
@@ -25,6 +25,13 @@ export type Locale = (typeof SUPPORTED)[number]
 export const FALLBACK: Locale = 'en'
 
 const TABLES: Record<Locale, Strings> = { hu, en, de }
+
+/** Megjelenítéshez: zászló és a nyelv SAJÁT nyelvű neve. */
+export const LOCALE_LABELS: Record<Locale, { flag: string; name: string }> = {
+  hu: { flag: '🇭🇺', name: 'Magyar' },
+  en: { flag: '🇬🇧', name: 'English' },
+  de: { flag: '🇩🇪', name: 'Deutsch' },
+}
 
 /** A készülék nyelvei alapján az első támogatott nyelv, különben angol. */
 export function resolveLocale(
@@ -44,35 +51,61 @@ export type Translate = (key: StringKey, vars?: Record<string, string | number>)
 type I18nValue = {
   locale: Locale
   t: Translate
+  /** A mentett beállítás; null, ha a felhasználó még nem választott. */
+  preference: LocalePreference | null
+  /** Nyelv beállítása (vagy 'auto' a telefon nyelvének követéséhez). */
+  setPreference: (pref: LocalePreference) => Promise<void>
+  /** A telefon nyelve – a választó képernyő ezt mutatja az "automatikus" mellett. */
+  deviceLocale: Locale
 }
 
 const Ctx = createContext<I18nValue | null>(null)
+
+/** Az API-kliens nem React: a nyelvet és a hálózati üzeneteket át kell adni neki. */
+function pushToApiClient(locale: Locale) {
+  setApiLocale(locale)
+  setApiMessages({
+    network: TABLES[locale]['error.network'],
+    generic: TABLES[locale]['error.generic'],
+    sessionExpired: TABLES[locale]['error.sessionExpired'],
+  })
+}
 
 export function I18nProvider({
   children,
   locale: forced,
 }: {
   children: ReactNode
-  /** Csak tesztekhez / előnézethez; éles használatban a telefon nyelve dönt. */
+  /** Csak tesztekhez / előnézethez; éles használatban a beállítás dönt. */
   locale?: Locale
 }) {
-  const locale = useMemo(() => {
-    const resolved = forced ?? resolveLocale()
+  const deviceLocale = useMemo(() => resolveLocale(), [])
+  const [preference, setPref] = useState<LocalePreference | null>(null)
+  const [loaded, setLoaded] = useState(false)
 
-    // SZÁNDÉKOSAN itt, renderelés közben – nem `useEffect`-ben. A hatások a
-    // gyerekektől felfelé futnak, tehát egy effekt CSAK a képernyők első
-    // lekérdezései UTÁN állítaná be a nyelvet: a nyitóképernyő tartalma egy
-    // pillanatra rossz nyelven érkezne. A beállítók egyszerű értékadások,
-    // ismételt hívásuk ártalmatlan.
-    setApiLocale(resolved)
-    setApiMessages({
-      network: TABLES[resolved]['error.network'],
-      generic: TABLES[resolved]['error.generic'],
-      sessionExpired: TABLES[resolved]['error.sessionExpired'],
-    })
+  useEffect(() => {
+    loadLocalePreference()
+      .then(setPref)
+      .finally(() => setLoaded(true))
+  }, [])
 
-    return resolved
-  }, [forced])
+  const locale: Locale = useMemo(() => {
+    if (forced) return forced
+    if (preference && preference !== 'auto') return preference
+    return deviceLocale
+  }, [forced, preference, deviceLocale])
+
+  // SZÁNDÉKOSAN renderelés közben – nem useEffect-ben. A hatások a gyerekektől
+  // felfelé futnak, tehát egy effekt csak a képernyők első lekérdezései UTÁN
+  // állítaná be a nyelvet: a nyitóképernyő tartalma egy pillanatra rossz
+  // nyelven érkezne. A beállítók egyszerű értékadások, ismételt hívásuk
+  // ártalmatlan.
+  pushToApiClient(locale)
+
+  const setPreference = useCallback(async (next: LocalePreference) => {
+    await saveLocalePreference(next)
+    setPref(next)
+  }, [])
 
   const t = useCallback<Translate>(
     (key, vars) => {
@@ -88,7 +121,16 @@ export function I18nProvider({
     [locale],
   )
 
-  return <Ctx.Provider value={{ locale, t }}>{children}</Ctx.Provider>
+  const value = useMemo(
+    () => ({ locale, t, preference, setPreference, deviceLocale }),
+    [locale, t, preference, setPreference, deviceLocale],
+  )
+
+  // Amíg a mentett beállítást olvassuk, nem renderelünk: különben egy pillanatra
+  // a telefon nyelvén villanna fel a felület, majd átváltana a választottra.
+  if (!loaded) return null
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useI18n(): I18nValue {

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Linking, Platform, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
 import { useAuth } from '../../src/auth/AuthContext'
+import { useT } from '../../src/i18n'
 import { isAvailable, requestPermissions } from '../../src/health/read'
 import { androidHealthStatus, requestAndroidPermissions } from '../../src/health/read.android'
 import { setConsent, syncHealth, type SyncResult } from '../../src/health/sync'
@@ -23,6 +24,7 @@ type Category = { key: string; label: string; purpose: string; metrics: { key: s
 
 export default function HealthScreen() {
   const { user, loading } = useAuth()
+  const t = useT()
   const [granted, setGranted] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
@@ -33,6 +35,32 @@ export default function HealthScreen() {
     queryKey: ['healthCatalog'],
     queryFn: () => api<Category[]>('/api/mobile/health/catalog', { anonymous: true }),
   })
+
+  // A HOZZÁJÁRULÁS a FELHASZNÁLÓHOZ tartozik, nem a készülékhez. Ezért a
+  // szerverről kell betölteni, nem a kapcsolók helyi állapotából indulni.
+  //
+  // Enélkül a képernyő minden induláskor "minden kikapcsolva" állapotot
+  // mutatott, akkor is, ha a felhasználó korábban már engedélyezte – és
+  // fiókváltás után sem derült ki, hogy az ÚJ fiókhoz még nincs hozzájárulás.
+  // A szinkron ilyenkor lefutott, a szerver viszont minden tételt elutasított,
+  // a felhasználó pedig csak annyit látott, hogy "nincs adat".
+  const consent = useQuery({
+    queryKey: ['healthConsent', user?.email],
+    queryFn: () =>
+      api<{
+        email: string
+        metricCount: number
+        categories: { key: string; granted: boolean }[]
+      }>('/api/mobile/health/consent'),
+    enabled: !!user,
+  })
+
+  // A szerverről érkező állapot átvétele. A helyi `granted` azért kell, hogy a
+  // kapcsoló azonnal reagáljon; a szerver válasza felülírja.
+  useEffect(() => {
+    if (!consent.data) return
+    setGranted(Object.fromEntries(consent.data.categories.map((c) => [c.key, c.granted])))
+  }, [consent.data])
 
   // Androidon a Health Connect külön alkalmazás: Android 14 előtt a Play
   // Áruházból telepítendő. Ezt indulás után derítjük ki, hogy a felhasználót
@@ -160,6 +188,23 @@ export default function HealthScreen() {
           Az alábbi adatokat az orvosod látja, hogy a kezelésedet a valós állapotodhoz igazítsa.
           Bármikor visszavonhatod. Az adatokat nem adjuk tovább és nem használjuk hirdetésre.
         </Muted>
+
+        {/* Melyik fiókhoz megy az adat – fiókváltásnál ez a leggyakoribb
+            félreértés forrása. */}
+        {!!consent.data && (
+          <View style={{ marginTop: spacing.md }}>
+            <Row label={t('account.email')} value={consent.data.email} />
+            {consent.data.metricCount > 0 ? (
+              <View style={{ marginTop: spacing.sm }}>
+                <Muted>{t('health.syncedCount', { count: consent.data.metricCount })}</Muted>
+              </View>
+            ) : (
+              <View style={{ marginTop: spacing.sm }}>
+                <Muted>{t('health.consentOtherAccount')}</Muted>
+              </View>
+            )}
+          </View>
+        )}
       </Card>
 
       {catalog.data.map((c) => (

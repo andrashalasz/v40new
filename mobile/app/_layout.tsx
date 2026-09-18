@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Stack } from 'expo-router'
+import { router, Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useEffect, useState } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -58,7 +58,16 @@ export default function RootLayout() {
  * az I18nProvider-en BELÜL kell lennie.
  */
 function Navigation() {
-  const { t } = useI18n()
+  const { t, preference } = useI18n()
+
+  // Első indítás: a felhasználó még nem választott nyelvet. Egyszer
+  // megkérdezzük, utána soha többé – az „Automatikus" is választásnak számít.
+  //
+  // A `useEffect` azért kell, mert a navigáció csak a Stack felépülése UTÁN
+  // fogad irányítást; renderelés közben hívva figyelmen kívül maradna.
+  useEffect(() => {
+    if (preference === null) router.replace('/nyelv')
+  }, [preference])
 
   return (
     <Stack
@@ -70,6 +79,7 @@ function Navigation() {
       }}
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="nyelv" options={{ headerShown: false }} />
       <Stack.Screen
         name="belepes"
         options={{ title: t('signIn.title'), presentation: 'modal' }}

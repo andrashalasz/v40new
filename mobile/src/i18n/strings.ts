@@ -22,6 +22,12 @@ export const hu = {
   'tab.health': 'Egészség',
   'tab.account': 'Fiókom',
 
+  'language.title': 'Nyelv',
+  'language.auto': 'Automatikus',
+  'language.changeLater': 'Később bármikor módosíthatod a Fiókom menüben.',
+  'language.deviceHint': 'A telefonod nyelve szerint',
+  'health.consentOtherAccount': 'Ehhez a fiókhoz még nem érkezett egészségügyi adat. Ha korábban másik fiókkal szinkronizáltál, az adat ott van – a hozzájárulás és az adat is fiókonként külön áll.',
+  'health.syncedCount': 'Eddig {count} napi érték érkezett ehhez a fiókhoz.',
   'common.all': 'Minden',
   'common.loading': 'Betöltés…',
   'common.retry': 'Újrapróbálom',

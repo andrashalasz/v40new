@@ -8,6 +8,12 @@ export const de: Strings = {
   'tab.health': 'Gesundheit',
   'tab.account': 'Konto',
 
+  'language.title': 'Sprache',
+  'language.auto': 'Automatisch',
+  'language.changeLater': 'Du kannst dies jederzeit unter Konto ändern.',
+  'language.deviceHint': 'Folgt deinem Telefon',
+  'health.consentOtherAccount': 'Für dieses Konto sind noch keine Gesundheitsdaten eingegangen. Wenn du zuvor mit einem anderen Konto synchronisiert hast, liegen die Daten dort – Einwilligung und Daten gelten je Konto.',
+  'health.syncedCount': 'Bisher sind {count} Tageswerte für dieses Konto eingegangen.',
   'common.all': 'Alle',
   'common.loading': 'Wird geladen…',
   'common.retry': 'Erneut versuchen',

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'expo-router'
+import { router } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
@@ -117,15 +117,18 @@ function ServiceCard({ service }: { service: Service }) {
           </Muted>
         </View>
 
-        <Link href={`/foglalas/${service.slug}`} asChild>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${t('treatments.book')} – ${service.title}`}
-            style={({ pressed }) => [st.cta, pressed && { opacity: 0.85 }]}
-          >
-            <Text style={st.ctaText}>{t('treatments.book')}</Text>
-          </Pressable>
-        </Link>
+        {/* SZÁNDÉKOSAN nem <Link asChild>: az `asChild` ebben a verzióban nem
+            adja tovább a gomb stílusát, ezért a gomb sima szürke linkszövegként
+            jelent meg – háttér nélkül, alig láthatóan. A közvetlen navigáció
+            kiszámítható, és a gomb úgy néz ki, ahogy megírtuk. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${t('treatments.book')} – ${service.title}`}
+          onPress={() => router.push(`/foglalas/${service.slug}`)}
+          style={({ pressed }) => [st.cta, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={st.ctaText}>{t('treatments.book')}</Text>
+        </Pressable>
       </View>
     </Card>
   )
