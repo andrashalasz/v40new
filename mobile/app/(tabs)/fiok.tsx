@@ -3,27 +3,35 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native
 import { api, ApiError } from '../../src/api/client'
 import type { MeResponse } from '../../src/api/types'
 import { useAuth } from '../../src/auth/AuthContext'
-import { colors, formatFt, spacing } from '../../src/theme'
+import { useI18n } from '../../src/i18n'
+import { useFormat } from '../../src/i18n/format'
+import { colors, spacing } from '../../src/theme'
 import { Button, Card, Empty, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
 import { SignInPrompt } from '../../src/ui/SignInPrompt'
 
 export default function AccountScreen() {
   const { user, loading, signOut } = useAuth()
+  const { locale, t } = useI18n()
+  const fmt = useFormat()
   const queryClient = useQueryClient()
 
   const me = useQuery({
-    queryKey: ['me'],
+    queryKey: ['me', locale],
     queryFn: () => api<MeResponse>('/api/me'),
     enabled: !!user,
   })
 
   if (loading) return <Loading />
-  if (!user) return <SignInPrompt text="A fiókod adataihoz, számláihoz és dokumentumaihoz lépj be." />
-  if (me.isPending) return <Loading label="Fiók betöltése…" />
+  if (!user) return <SignInPrompt text={t('signIn.requiredAccount')} />
+  if (me.isPending) return <Loading label={t('account.loading')} />
   if (me.isError) {
     return (
       <View style={st.page}>
-        <ErrorBox message={(me.error as ApiError).message} onRetry={() => void me.refetch()} />
+        <ErrorBox
+          message={(me.error as ApiError).message}
+          retryLabel={t('common.retry')}
+          onRetry={() => void me.refetch()}
+        />
       </View>
     )
   }
@@ -46,57 +54,60 @@ export default function AccountScreen() {
       }
     >
       <Card>
-        <H2>{name || 'Fiókom'}</H2>
-        <Row label="E-mail" value={profile?.email ?? '—'} />
-        <Row label="Telefon" value={profile?.phone ?? '—'} />
+        <H2>{name || t('account.title')}</H2>
+        <Row label={t('account.email')} value={profile?.email ?? '—'} />
+        <Row label={t('account.phone')} value={profile?.phone ?? '—'} />
       </Card>
 
-      <H2>Szakvélemények</H2>
+      <H2>{t('account.opinions')}</H2>
       {opinions.length === 0 ? (
-        <Empty text="Még nincs szakvéleményed." />
+        <Empty text={t('account.noOpinions')} />
       ) : (
         opinions.map((o) => (
           <Card key={o.id}>
             <Text style={st.itemTitle}>{o.title}</Text>
             <Muted>
-              {o.documentCode} · {new Date(o.createdAt).toLocaleDateString('hu-HU')}
+              {o.documentCode} · {fmt.date(o.createdAt)}
             </Muted>
           </Card>
         ))
       )}
 
-      <H2>Dokumentumaim</H2>
+      <H2>{t('account.documents')}</H2>
       {documents.length === 0 ? (
-        <Empty text="Még nem töltöttél fel leletet." />
+        <Empty text={t('account.noDocuments')} />
       ) : (
         documents.map((d) => (
           <Card key={d.id}>
             <Text style={st.itemTitle}>{d.fileName}</Text>
-            <Muted>{new Date(d.createdAt).toLocaleDateString('hu-HU')}</Muted>
+            <Muted>{fmt.date(d.createdAt)}</Muted>
           </Card>
         ))
       )}
 
-      <H2>Számlák</H2>
+      <H2>{t('account.invoices')}</H2>
       {invoices.length === 0 ? (
-        <Empty text="Még nincs számlád." />
+        <Empty text={t('account.noInvoices')} />
       ) : (
         invoices.map((i) => (
           <Card key={i.id}>
             <Text style={st.itemTitle}>
               {i.invoiceNumber}
-              {i.isStorno ? ' (sztornó)' : ''}
+              {i.isStorno ? ` ${t('account.storno')}` : ''}
             </Text>
             <Muted>
-              {formatFt(i.totalGross)} ·{' '}
-              {new Date(i.issuedAt ?? i.createdAt).toLocaleDateString('hu-HU')}
+              {fmt.price(i.totalGross)} · {fmt.date(i.issuedAt ?? i.createdAt)}
             </Muted>
           </Card>
         ))
       )}
 
       <View style={{ marginTop: spacing.lg }}>
-        <Button label="Kijelentkezés" variant="secondary" onPress={() => void handleSignOut()} />
+        <Button
+          label={t('common.signOut')}
+          variant="secondary"
+          onPress={() => void handleSignOut()}
+        />
       </View>
     </ScrollView>
   )

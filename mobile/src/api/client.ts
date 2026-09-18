@@ -35,6 +35,44 @@ export function setSignOutHandler(fn: (() => void) | null) {
   onSignedOut = fn
 }
 
+/**
+ * Az aktuális nyelv, amit minden LEKÉRDEZÉSHEZ hozzáfűzünk.
+ *
+ * Miért itt és nem hívásonként: a backend szinte minden olvasó végpontja ért
+ * `locale` paramétert (kezelések, kategóriák, bérletek, szövegek). Ha ezt
+ * minden hívásnál kézzel kellene odaírni, egy-két helyen előbb-utóbb
+ * kimaradna, és ott magyarul jelenne meg a tartalom egy német felhasználónak.
+ * Az a fajta hiba ráadásul csak idegen nyelvre váltva látszik.
+ *
+ * Az írásokhoz (POST) NEM tesszük hozzá: ott a törzs számít, és egy váratlan
+ * query paraméter csak zavar.
+ */
+let currentLocale = 'en'
+export function setApiLocale(locale: string) {
+  currentLocale = locale
+}
+
+/**
+ * A kliens saját hibaüzenetei, a felhasználó nyelvén.
+ *
+ * A hálózati hibáknak nincs szerverválasza, amiből fordítást lehetne venni,
+ * ezért a szövegeket a felület adja át induláskor (I18nProvider). Így ez a
+ * modul React nélkül is működik, de nem kényszerít egy fix nyelvet.
+ */
+let messages = {
+  network: 'No connection to the server.',
+  generic: 'Something went wrong. Please try again.',
+  sessionExpired: 'Your session has expired, please sign in again.',
+}
+export function setApiMessages(next: typeof messages) {
+  messages = next
+}
+
+function withLocale(path: string): string {
+  if (path.includes('locale=')) return path
+  return `${path}${path.includes('?') ? '&' : '?'}locale=${encodeURIComponent(currentLocale)}`
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -47,7 +85,7 @@ export class ApiError extends Error {
 
 /** A szerver hibáinak egységes kicsomagolása. */
 async function toError(res: Response): Promise<ApiError> {
-  let message = 'Váratlan hiba történt. Próbáld újra.'
+  let message = messages.generic
   let fields: Record<string, string> | undefined
   try {
     const body = (await res.json()) as {
@@ -89,7 +127,7 @@ async function refreshTokens(): Promise<Tokens | null> {
     } catch {
       // Hálózati hiba: NEM léptetünk ki. A felhasználó lehet, hogy csak
       // alagútban van – a hívó kap hibát, a token marad.
-      throw new ApiError(0, 'Nincs kapcsolat a szerverrel.')
+      throw new ApiError(0, messages.network)
     } finally {
       refreshing = null
     }
@@ -107,20 +145,23 @@ type Options = {
 }
 
 export async function api<T>(path: string, opts: Options = {}): Promise<T> {
+  const method = opts.method ?? (opts.body !== undefined ? 'POST' : 'GET')
+  const url = `${BASE_URL}${method === 'GET' ? withLocale(path) : path}`
+
   const send = async (token?: string): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
     if (token) headers.Authorization = `Bearer ${token}`
 
     try {
-      return await fetch(`${BASE_URL}${path}`, {
-        method: opts.method ?? (opts.body !== undefined ? 'POST' : 'GET'),
+      return await fetch(url, {
+        method,
         headers,
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         signal: opts.signal,
       })
     } catch {
-      throw new ApiError(0, 'Nincs kapcsolat a szerverrel. Ellenőrizd az internetet.')
+      throw new ApiError(0, messages.network)
     }
   }
 
@@ -139,7 +180,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
     if (!next) {
       await clearTokens()
       onSignedOut?.()
-      throw new ApiError(401, 'A munkamenet lejárt, jelentkezz be újra.')
+      throw new ApiError(401, messages.sessionExpired)
     }
     res = await send(next.accessToken)
 
@@ -148,7 +189,7 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
     if (res.status === 401) {
       await clearTokens()
       onSignedOut?.()
-      throw new ApiError(401, 'A munkamenet lejárt, jelentkezz be újra.')
+      throw new ApiError(401, messages.sessionExpired)
     }
   }
 

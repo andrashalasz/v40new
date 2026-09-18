@@ -4,7 +4,10 @@ import { useMemo, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
 import { useAuth } from '../../src/auth/AuthContext'
-import { colors, formatFt, formatDateTime, formatTime, radius, spacing } from '../../src/theme'
+import { useI18n } from '../../src/i18n'
+import { useFormat } from '../../src/i18n/format'
+import type { StringKey } from '../../src/i18n/strings'
+import { clinicDayOf, colors, radius, spacing } from '../../src/theme'
 import { Button, Card, ErrorBox, Field, H2, Loading, Muted, Row } from '../../src/ui'
 
 /**
@@ -32,22 +35,10 @@ type Availability = { serviceId: number; durationMin: number; practitioners: Pra
 
 type Settlement = 'ON_SITE' | 'PASS' | 'ONLINE_CARD'
 
-const SETTLEMENTS: { value: Settlement; label: string; hint: string }[] = [
-  {
-    value: 'ON_SITE',
-    label: 'Fizetés a helyszínen',
-    hint: 'Készpénzzel vagy bankkártyával a rendelőben.',
-  },
-  {
-    value: 'PASS',
-    label: 'Bérletből levonás',
-    hint: 'Ha van érvényes bérleted a kezelésre, a rendszer levon egy alkalmat.',
-  },
-  {
-    value: 'ONLINE_CARD',
-    label: 'Bankkártyás fizetés',
-    hint: 'A foglalás a sikeres fizetéssel véglegesül.',
-  },
+const SETTLEMENTS: { value: Settlement; label: StringKey; hint: StringKey }[] = [
+  { value: 'ON_SITE', label: 'settlement.onSite', hint: 'settlement.onSiteHint' },
+  { value: 'PASS', label: 'settlement.pass', hint: 'settlement.passHint' },
+  { value: 'ONLINE_CARD', label: 'settlement.card', hint: 'settlement.cardHint' },
 ]
 
 /** A következő 14 nap – ennyire előre érdemes kínálni időpontot. */
@@ -56,6 +47,8 @@ const DAYS_AHEAD = 14
 export default function BookingScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>()
   const { user } = useAuth()
+  const { locale, t } = useI18n()
+  const fmt = useFormat()
 
   const [practitionerId, setPractitionerId] = useState<number | null>(null)
   const [day, setDay] = useState<string | null>(null)
@@ -67,7 +60,7 @@ export default function BookingScreen() {
   const [result, setResult] = useState<{ publicRef: string; startsAt: string } | null>(null)
 
   const service = useQuery({
-    queryKey: ['service', slug],
+    queryKey: ['service', slug, locale],
     queryFn: () =>
       api<{ product: Service }>(`/api/products?slug=${encodeURIComponent(String(slug))}`, {
         anonymous: true,
@@ -94,7 +87,7 @@ export default function BookingScreen() {
     staleTime: 0,
   })
 
-  if (service.isPending) return <Loading label="Kezelés betöltése…" />
+  if (service.isPending) return <Loading label={t('booking.loadingService')} />
   if (service.isError) {
     return (
       <View style={st.page}>
@@ -107,10 +100,12 @@ export default function BookingScreen() {
   const practitioners = availability.data?.practitioners ?? []
   const chosen = practitioners.find((p) => p.practitionerId === practitionerId) ?? null
 
-  // Napok, amelyeken a kiválasztott szakembernek van szabad sávja.
+  // Napok, amelyeken a kiválasztott szakembernek van szabad sávja. A napot a
+  // RENDELŐ időzónájában képezzük – UTC szerint egy esti időpont a következő
+  // nap alá csúszna.
   const daysWithSlots = new Map<string, Slot[]>()
   for (const slot of chosen?.slots ?? []) {
-    const key = new Date(slot.start).toLocaleDateString('sv-SE', { timeZone: 'Europe/Budapest' })
+    const key = clinicDayOf(slot.start)
     const list = daysWithSlots.get(key) ?? []
     list.push(slot)
     daysWithSlots.set(key, list)
@@ -122,32 +117,32 @@ export default function BookingScreen() {
     setSubmitting(true)
     setError('')
     try {
-      const res = await api<{ publicRef: string; startsAt: string }>(
-        '/api/appointments/hold',
-        {
-          // Bejelentkezve a szerver a munkamenetből tudja, ki foglal; vendégként
-          // a megadott adatokból hoz létre fiókot.
-          anonymous: !user,
-          body: {
-            serviceId: svc.id,
-            practitionerId,
-            startsAt: start,
-            settlement,
-            note: form.note || undefined,
-            customer: user
-              ? undefined
-              : {
-                  lastName: form.lastName,
-                  firstName: form.firstName,
-                  email: form.email,
-                  phone: form.phone,
-                },
-          },
+      const res = await api<{ publicRef: string; startsAt: string }>('/api/appointments/hold', {
+        // Bejelentkezve a szerver a munkamenetből tudja, ki foglal; vendégként
+        // a megadott adatokból hoz létre fiókot.
+        anonymous: !user,
+        body: {
+          serviceId: svc.id,
+          practitionerId,
+          startsAt: start,
+          settlement,
+          note: form.note || undefined,
+          customer: user
+            ? undefined
+            : {
+                lastName: form.lastName,
+                firstName: form.firstName,
+                email: form.email,
+                phone: form.phone,
+              },
         },
-      )
+      })
       setResult(res)
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'A foglalás nem sikerült.')
+      // Magyarul a szerver üzenete pontosabb (pl. "ez az idősáv elkelt");
+      // idegen nyelven viszont csak magyarul létezik, ezért a sajátunkat adjuk.
+      const fromServer = e instanceof ApiError ? e.message : ''
+      setError(locale === 'hu' && fromServer ? fromServer : t('booking.failed'))
       // Ha az idősáv közben elkelt, ne kínáljuk fel újra: frissítjük a naptárat
       // és visszalépünk az időpontválasztáshoz.
       setStart(null)
@@ -161,17 +156,17 @@ export default function BookingScreen() {
     return (
       <ScrollView contentContainerStyle={st.page}>
         <Card>
-          <H2>Sikeres foglalás</H2>
-          <Muted>A visszaigazolást e-mailben is elküldtük.</Muted>
+          <H2>{t('booking.success')}</H2>
+          <Muted>{t('booking.successHint')}</Muted>
           <View style={{ marginTop: spacing.md }}>
-            <Row label="Azonosító" value={result.publicRef} />
-            <Row label="Kezelés" value={svc.title} />
-            <Row label="Időpont" value={formatDateTime(result.startsAt)} />
+            <Row label={t('common.identifier')} value={result.publicRef} />
+            <Row label={t('booking.treatment')} value={svc.title} />
+            <Row label={t('booking.time')} value={fmt.dateTime(result.startsAt)} />
           </View>
           <View style={{ marginTop: spacing.lg, gap: spacing.sm }}>
-            <Button label="Foglalásaim" onPress={() => router.replace('/foglalasaim')} />
+            <Button label={t('booking.myBookings')} onPress={() => router.replace('/foglalasaim')} />
             <Button
-              label="További kezelések"
+              label={t('booking.moreTreatments')}
               variant="secondary"
               onPress={() => router.replace('/')}
             />
@@ -186,31 +181,29 @@ export default function BookingScreen() {
       <Card>
         <H2>{svc.title}</H2>
         <Muted>
-          {svc.time} perc · {formatFt(svc.price)}
+          {svc.time} {t('common.minutes')} · {fmt.price(svc.price)}
         </Muted>
       </Card>
 
-      {availability.isPending && <Loading label="Szabad időpontok keresése…" />}
+      {availability.isPending && <Loading label={t('booking.loadingSlots')} />}
 
       {availability.isError && (
         <ErrorBox
           message={(availability.error as ApiError).message}
+          retryLabel={t('common.retry')}
           onRetry={() => void availability.refetch()}
         />
       )}
 
       {availability.isSuccess && practitioners.length === 0 && (
         <Card>
-          <Muted>
-            Ehhez a kezeléshez jelenleg nincs online foglalható időpont. Kérlek hívj minket, és
-            telefonon egyeztetünk.
-          </Muted>
+          <Muted>{t('booking.noSlots')}</Muted>
         </Card>
       )}
 
       {practitioners.length > 0 && (
         <Card>
-          <H2>Szakember</H2>
+          <H2>{t('booking.practitioner')}</H2>
           <View style={st.optionRow}>
             {practitioners.map((p) => (
               <Pressable
@@ -225,10 +218,7 @@ export default function BookingScreen() {
                 style={[st.option, practitionerId === p.practitionerId && st.optionOn]}
               >
                 <Text
-                  style={[
-                    st.optionText,
-                    practitionerId === p.practitionerId && st.optionTextOn,
-                  ]}
+                  style={[st.optionText, practitionerId === p.practitionerId && st.optionTextOn]}
                 >
                   {p.practitionerName}
                 </Text>
@@ -240,33 +230,37 @@ export default function BookingScreen() {
 
       {!!chosen && (
         <Card>
-          <H2>Nap</H2>
+          <H2>{t('booking.day')}</H2>
           {daysWithSlots.size === 0 ? (
-            <Muted>Ennél a szakembernél a következő két hétben nincs szabad időpont.</Muted>
+            <Muted>{t('booking.noSlotsForPractitioner')}</Muted>
           ) : (
             <View style={st.optionRow}>
-              {[...daysWithSlots.keys()].sort().map((d) => (
-                <Pressable
-                  key={d}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: day === d }}
-                  onPress={() => {
-                    setDay(d)
-                    setStart(null)
-                  }}
-                  style={[st.day, day === d && st.optionOn]}
-                >
-                  <Text style={[st.dayWeekday, day === d && st.optionTextOn]}>
-                    {new Date(`${d}T12:00:00Z`).toLocaleDateString('hu-HU', { weekday: 'short' })}
-                  </Text>
-                  <Text style={[st.dayNumber, day === d && st.optionTextOn]}>
-                    {Number(d.slice(8, 10))}
-                  </Text>
-                  <Text style={[st.dayMonth, day === d && st.optionTextOn]}>
-                    {new Date(`${d}T12:00:00Z`).toLocaleDateString('hu-HU', { month: 'short' })}
-                  </Text>
-                </Pressable>
-              ))}
+              {[...daysWithSlots.keys()].sort().map((d) => {
+                // Dél: a nap közepe minden időzónában ugyanarra a napra esik.
+                const noon = `${d}T12:00:00Z`
+                return (
+                  <Pressable
+                    key={d}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: day === d }}
+                    onPress={() => {
+                      setDay(d)
+                      setStart(null)
+                    }}
+                    style={[st.day, day === d && st.optionOn]}
+                  >
+                    <Text style={[st.dayWeekday, day === d && st.optionTextOn]}>
+                      {fmt.weekday(noon)}
+                    </Text>
+                    <Text style={[st.dayNumber, day === d && st.optionTextOn]}>
+                      {Number(d.slice(8, 10))}
+                    </Text>
+                    <Text style={[st.dayMonth, day === d && st.optionTextOn]}>
+                      {fmt.month(noon)}
+                    </Text>
+                  </Pressable>
+                )
+              })}
             </View>
           )}
         </Card>
@@ -274,19 +268,19 @@ export default function BookingScreen() {
 
       {!!day && (
         <Card>
-          <H2>Időpont</H2>
+          <H2>{t('booking.time')}</H2>
           <View style={st.optionRow}>
             {daySlots.map((slot) => (
               <Pressable
                 key={slot.start}
                 accessibilityRole="button"
-                accessibilityLabel={`${formatTime(slot.start)} időpont`}
+                accessibilityLabel={fmt.time(slot.start)}
                 accessibilityState={{ selected: start === slot.start }}
                 onPress={() => setStart(slot.start)}
                 style={[st.slot, start === slot.start && st.optionOn]}
               >
                 <Text style={[st.optionText, start === slot.start && st.optionTextOn]}>
-                  {formatTime(slot.start)}
+                  {fmt.time(slot.start)}
                 </Text>
               </Pressable>
             ))}
@@ -296,23 +290,23 @@ export default function BookingScreen() {
 
       {!!start && !user && (
         <Card>
-          <H2>Adataid</H2>
-          <Muted>A visszaigazolást és a belépő linket erre a címre küldjük.</Muted>
+          <H2>{t('booking.yourDetails')}</H2>
+          <Muted>{t('booking.detailsHint')}</Muted>
           <View style={{ marginTop: spacing.md }}>
             <Field
-              label="Vezetéknév"
+              label={t('booking.lastName')}
               value={form.lastName}
               onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
               autoComplete="family-name"
             />
             <Field
-              label="Keresztnév"
+              label={t('booking.firstName')}
               value={form.firstName}
               onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
               autoComplete="given-name"
             />
             <Field
-              label="E-mail"
+              label={t('booking.email')}
               value={form.email}
               onChangeText={(v) => setForm((f) => ({ ...f, email: v }))}
               keyboardType="email-address"
@@ -320,7 +314,7 @@ export default function BookingScreen() {
               autoComplete="email"
             />
             <Field
-              label="Telefonszám"
+              label={t('booking.phone')}
               value={form.phone}
               onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
               keyboardType="phone-pad"
@@ -332,7 +326,7 @@ export default function BookingScreen() {
 
       {!!start && (
         <Card>
-          <H2>Fizetési mód</H2>
+          <H2>{t('booking.payment')}</H2>
           {SETTLEMENTS.map((s) => (
             <Pressable
               key={s.value}
@@ -341,8 +335,8 @@ export default function BookingScreen() {
               onPress={() => setSettlement(s.value)}
               style={[st.radio, settlement === s.value && st.radioOn]}
             >
-              <Text style={st.radioLabel}>{s.label}</Text>
-              <Muted>{s.hint}</Muted>
+              <Text style={st.radioLabel}>{t(s.label)}</Text>
+              <Muted>{t(s.hint)}</Muted>
             </Pressable>
           ))}
         </Card>
@@ -350,16 +344,16 @@ export default function BookingScreen() {
 
       {!!start && (
         <Card>
-          <H2>Összegzés</H2>
-          <Row label="Kezelés" value={svc.title} />
-          <Row label="Szakember" value={chosen?.practitionerName ?? '—'} />
-          <Row label="Időpont" value={formatDateTime(start)} />
-          <Row label="Időtartam" value={`${svc.time} perc`} />
+          <H2>{t('booking.summary')}</H2>
+          <Row label={t('booking.treatment')} value={svc.title} />
+          <Row label={t('booking.practitioner')} value={chosen?.practitionerName ?? '—'} />
+          <Row label={t('booking.time')} value={fmt.dateTime(start)} />
+          <Row label={t('booking.duration')} value={`${svc.time} ${t('common.minutes')}`} />
           <Row
-            label="Áfa"
-            value={svc.vatRate ? 'bruttó, 27% áfa' : 'áfamentes'}
+            label={t('booking.vat')}
+            value={svc.vatRate ? t('treatments.vatIncluded') : t('treatments.vatExempt')}
           />
-          <Row label="Fizetendő" value={formatFt(svc.price)} />
+          <Row label={t('booking.total')} value={fmt.price(svc.price)} />
 
           {!!error && (
             <View style={{ marginTop: spacing.md }}>
@@ -369,7 +363,7 @@ export default function BookingScreen() {
 
           <View style={{ marginTop: spacing.lg }}>
             <Button
-              label="Foglalás megerősítése"
+              label={t('booking.confirm')}
               onPress={() => void submit()}
               loading={submitting}
               disabled={!settlement || (!user && !form.email)}

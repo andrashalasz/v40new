@@ -25,8 +25,8 @@ Döntések (2026-09-18):
 | Futtatás valódi szimulátoron | ⏳ Xcode-licenc kell |
 | Bérletvásárlás (Stripe) | ⬜ hátravan |
 | Push értesítések | ⬜ hátravan |
-| Ikon, indítókép, arculat véglegesítése | ⬜ hátravan |
-| Három nyelv (HU/EN/DE) | ⬜ hátravan |
+| Ikon, indítókép (a weboldal logójából) | ✅ kész |
+| Három nyelv + telefonnyelv-felismerés | ✅ kész |
 | Store-beadás | ⬜ hátravan |
 
 ### Fizetés a store-okban

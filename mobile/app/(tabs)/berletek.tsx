@@ -3,7 +3,9 @@ import { FlatList, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
 import type { CustomerPass, MeResponse, PassTemplate } from '../../src/api/types'
 import { useAuth } from '../../src/auth/AuthContext'
-import { colors, formatFt, radius, spacing } from '../../src/theme'
+import { useI18n, useT } from '../../src/i18n'
+import { useFormat } from '../../src/i18n/format'
+import { colors, radius, spacing } from '../../src/theme'
 import { Card, Empty, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
 
 /**
@@ -14,24 +16,26 @@ import { Card, Empty, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
  */
 export default function PassesScreen() {
   const { user } = useAuth()
+  const { locale, t } = useI18n()
 
   const catalog = useQuery({
-    queryKey: ['passTemplates'],
+    queryKey: ['passTemplates', locale],
     queryFn: () => api<PassTemplate[]>('/api/passes', { anonymous: true }),
   })
 
   const me = useQuery({
-    queryKey: ['me'],
+    queryKey: ['me', locale],
     queryFn: () => api<MeResponse>('/api/me'),
     enabled: !!user,
   })
 
-  if (catalog.isPending) return <Loading label="Bérletek betöltése…" />
+  if (catalog.isPending) return <Loading label={t('passes.loading')} />
   if (catalog.isError) {
     return (
       <View style={st.page}>
         <ErrorBox
           message={(catalog.error as ApiError).message}
+          retryLabel={t('common.retry')}
           onRetry={() => void catalog.refetch()}
         />
       </View>
@@ -54,24 +58,27 @@ export default function PassesScreen() {
         <View>
           {!!user && (
             <View style={{ marginBottom: spacing.lg }}>
-              <H2>Az én bérleteim</H2>
+              <H2>{t('passes.mine')}</H2>
               {myPasses.length === 0 ? (
-                <Empty text="Jelenleg nincs érvényes bérleted." />
+                <Empty text={t('passes.noneMine')} />
               ) : (
                 myPasses.map((p) => <MyPassCard key={p.code} pass={p} />)
               )}
             </View>
           )}
-          <H2>Megvásárolható bérletek</H2>
+          <H2>{t('passes.available')}</H2>
         </View>
       }
-      ListEmptyComponent={<Empty text="Jelenleg nincs elérhető bérlet." />}
+      ListEmptyComponent={<Empty text={t('passes.noneAvailable')} />}
       renderItem={({ item }) => <PassTemplateCard pass={item} />}
     />
   )
 }
 
 function MyPassCard({ pass }: { pass: CustomerPass }) {
+  const t = useT()
+  const fmt = useFormat()
+
   const used = pass.sessionsTotal - pass.sessionsRemaining
   const ratio = pass.sessionsTotal > 0 ? used / pass.sessionsTotal : 0
 
@@ -79,25 +86,32 @@ function MyPassCard({ pass }: { pass: CustomerPass }) {
     <Card>
       <Text style={st.title}>{pass.passTemplate.title}</Text>
 
-      <View style={st.barTrack}>
+      <View
+        style={st.barTrack}
+        accessibilityRole="progressbar"
+        accessibilityValue={{ min: 0, max: pass.sessionsTotal, now: pass.sessionsRemaining }}
+      >
         <View style={[st.barFill, { width: `${Math.round(ratio * 100)}%` }]} />
       </View>
       <Muted>
-        {pass.sessionsRemaining} alkalom maradt a(z) {pass.sessionsTotal}-ből
+        {t('passes.sessionsLeft', {
+          remaining: pass.sessionsRemaining,
+          total: pass.sessionsTotal,
+        })}
       </Muted>
 
       <View style={{ marginTop: spacing.md }}>
-        <Row
-          label="Érvényes"
-          value={new Date(pass.validUntil).toLocaleDateString('hu-HU')}
-        />
-        <Row label="Kód" value={pass.code} />
+        <Row label={t('passes.validUntil')} value={fmt.date(pass.validUntil)} />
+        <Row label={t('passes.code')} value={pass.code} />
       </View>
     </Card>
   )
 }
 
 function PassTemplateCard({ pass }: { pass: PassTemplate }) {
+  const t = useT()
+  const fmt = useFormat()
+
   return (
     <Card>
       <Text style={st.title}>{pass.title}</Text>
@@ -107,15 +121,18 @@ function PassTemplateCard({ pass }: { pass: PassTemplate }) {
         </Text>
       )}
 
-      <Row label="Alkalmak" value={`${pass.sessionCount} alkalom`} />
-      <Row label="Érvényesség" value={`${pass.validityDays} nap`} />
-      <Row label="Ár" value={formatFt(pass.priceGross)} />
+      <Row
+        label={t('passes.sessions')}
+        value={t('passes.sessionsValue', { count: pass.sessionCount })}
+      />
+      <Row
+        label={t('passes.validity')}
+        value={t('passes.validityValue', { days: pass.validityDays })}
+      />
+      <Row label={t('passes.price')} value={fmt.price(pass.priceGross)} />
 
       <View style={{ marginTop: spacing.md }}>
-        <Muted>
-          A bérlet megvásárlása jelenleg a weboldalon lehetséges. Az appon belüli vásárlás a
-          fizetési modul beépítése után lesz elérhető.
-        </Muted>
+        <Muted>{t('passes.buyOnWeb')}</Muted>
       </View>
     </Card>
   )

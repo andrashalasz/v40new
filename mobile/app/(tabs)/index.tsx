@@ -3,14 +3,17 @@ import { Link } from 'expo-router'
 import { useState } from 'react'
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
-import { colors, formatFt, radius, spacing } from '../../src/theme'
+import { useI18n } from '../../src/i18n'
+import { useFormat } from '../../src/i18n/format'
+import { colors, radius, spacing } from '../../src/theme'
 import { Card, Chip, Empty, ErrorBox, Loading, Muted } from '../../src/ui'
 
 /**
  * Kezelések listája kategória-szűrővel – az app belépő képernyője.
  *
  * A meglévő webes API-kat használja (`/api/products`, `/api/products/types`),
- * ezért nincs külön mobil-végpont, amit karban kellene tartani.
+ * ezért nincs külön mobil-végpont, amit karban kellene tartani. A nyelvet az
+ * API-kliens teszi rá minden lekérdezésre.
  */
 
 type Service = {
@@ -27,38 +30,41 @@ type Service = {
 type Category = { value: string; label: string }
 
 export default function TreatmentsScreen() {
+  const { locale, t } = useI18n()
+
   // A szűrés SZERVEROLDALON történik: a szűrőkulcs mindig a magyar
   // kategórianév, a megjelenített címke viszont a nyelv szerinti – ezt
   // kliensoldalon nem lehetne helyesen összepárosítani.
   const [filter, setFilter] = useState('')
 
   const categories = useQuery({
-    queryKey: ['categories'],
+    queryKey: ['categories', locale],
     queryFn: () => api<Category[]>('/api/products/types', { anonymous: true }),
   })
 
   const services = useQuery({
-    queryKey: ['services', filter],
+    queryKey: ['services', filter, locale],
     queryFn: () =>
       api<Service[]>(`/api/products${filter ? `?type=${encodeURIComponent(filter)}` : ''}`, {
         anonymous: true,
       }),
   })
 
-  if (services.isPending) return <Loading label="Kezelések betöltése…" />
+  if (services.isPending) return <Loading label={t('treatments.loading')} />
 
   if (services.isError) {
     return (
       <View style={st.page}>
         <ErrorBox
           message={(services.error as ApiError).message}
+          retryLabel={t('common.retry')}
           onRetry={() => void services.refetch()}
         />
       </View>
     )
   }
 
-  const chips: Category[] = [{ value: '', label: 'Minden' }, ...(categories.data ?? [])]
+  const chips: Category[] = [{ value: '', label: t('common.all') }, ...(categories.data ?? [])]
 
   return (
     <FlatList
@@ -79,13 +85,16 @@ export default function TreatmentsScreen() {
           ))}
         </View>
       }
-      ListEmptyComponent={<Empty text="Ebben a kategóriában jelenleg nincs foglalható kezelés." />}
+      ListEmptyComponent={<Empty text={t('treatments.empty')} />}
       renderItem={({ item }) => <ServiceCard service={item} />}
     />
   )
 }
 
 function ServiceCard({ service }: { service: Service }) {
+  const t = useI18n().t
+  const fmt = useFormat()
+
   return (
     <Card>
       <Text style={st.title}>{service.title}</Text>
@@ -96,25 +105,25 @@ function ServiceCard({ service }: { service: Service }) {
       )}
 
       <View style={st.tags}>
-        <Tag text={`${service.time} perc`} />
+        <Tag text={`${service.time} ${t('common.minutes')}`} />
         {!!service.type && <Tag text={service.type} />}
       </View>
 
       <View style={st.footer}>
         <View style={{ flexShrink: 1 }}>
-          <Text style={st.price}>{formatFt(service.price)}</Text>
+          <Text style={st.price}>{fmt.price(service.price)}</Text>
           <Muted>
-            {service.vatRate ? 'bruttó, 27% áfa' : 'áfamentes egészségügyi szolgáltatás'}
+            {service.vatRate ? t('treatments.vatIncluded') : t('treatments.vatExempt')}
           </Muted>
         </View>
 
         <Link href={`/foglalas/${service.slug}`} asChild>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Időpontot választok – ${service.title}`}
+            accessibilityLabel={`${t('treatments.book')} – ${service.title}`}
             style={({ pressed }) => [st.cta, pressed && { opacity: 0.85 }]}
           >
-            <Text style={st.ctaText}>Időpontot választok</Text>
+            <Text style={st.ctaText}>{t('treatments.book')}</Text>
           </Pressable>
         </Link>
       </View>

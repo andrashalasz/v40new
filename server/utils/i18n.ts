@@ -5,13 +5,30 @@ import { translateBatch } from './translate'
  * Többnyelvűség feloldó réteg + AI-fordítási pipeline.
  *
  * Az alap nyelv a magyar: az eredeti mezők a saját tábláikban maradnak, a többi
- * nyelv a Translation táblába kerül. Ha egy fordítás hiányzik, a magyarra esünk
- * vissza – így egy hiányzó fordítás sosem eredményez üres oldalt.
+ * nyelv a Translation táblába kerül.
+ *
+ * VISSZAESÉSI SORREND: kért nyelv -> angol -> magyar.
+ *
+ * Az angol közbeiktatása a mobilalkalmazás miatt lett fontos. Az app a telefon
+ * nyelvét veszi át, és ha az nem támogatott, angolra vált. Korábban viszont egy
+ * HIÁNYZÓ fordítás mindig magyar szöveget adott – vagyis egy német
+ * felhasználónak a lefordítatlan kezelésnevek magyarul jelentek volna meg.
+ * Angolul legalább esélye van megérteni.
+ *
+ * Magyar és angol nyelvnél a viselkedés változatlan.
  */
 
 export const DEFAULT_LOCALE = 'hu'
+const FALLBACK_LOCALE = 'en'
 
-/** Szövegblokkok kulcs→érték a kért nyelven, magyar visszaeséssel. */
+/** A kért nyelv és az angol köztes lépcső, a magyar alap fölé. */
+function overlayLocales(locale: string): string[] {
+  if (!locale || locale === DEFAULT_LOCALE) return []
+  // Sorrend számít: a későbbi felülírja a korábbit, ezért az angol előbb.
+  return locale === FALLBACK_LOCALE ? [FALLBACK_LOCALE] : [FALLBACK_LOCALE, locale]
+}
+
+/** Szövegblokkok kulcs→érték a kért nyelven, angol majd magyar visszaeséssel. */
 export async function contentMap(locale: string): Promise<Record<string, string>> {
   // A 'legal' oldal nagy HTML-blokkjai (ÁSZF, Adatvédelmi) NEM kerülnek a
   // globális szövegtérképbe – külön endpoint szolgálja ki őket, hogy ne
@@ -21,29 +38,51 @@ export async function contentMap(locale: string): Promise<Record<string, string>
     select: { key: true, value: true },
   })
   const map: Record<string, string> = Object.fromEntries(base.map((r) => [r.key, r.value]))
-  if (locale && locale !== DEFAULT_LOCALE) {
-    const loc = await prisma.contentBlock.findMany({
-      where: { locale, page: { not: 'legal' } },
-      select: { key: true, value: true },
+
+  const overlays = overlayLocales(locale)
+  if (overlays.length) {
+    const rows = await prisma.contentBlock.findMany({
+      where: { locale: { in: overlays }, page: { not: 'legal' } },
+      select: { key: true, value: true, locale: true },
     })
-    for (const r of loc) map[r.key] = r.value
+    // Egy lekérdezés, majd a visszaesési sorrend szerint rétegezve.
+    for (const want of overlays) {
+      for (const r of rows) if (r.locale === want) map[r.key] = r.value
+    }
   }
+
   return map
 }
 
-/** Egy entitás fordításai: { [id]: { [mező]: érték } } a kért nyelven. */
+/**
+ * Egy entitás fordításai: { [id]: { [mező]: érték } }.
+ *
+ * A kért nyelv értéke nyer; ahol az hiányzik, az angol jön; ahol az sincs, a
+ * hívó a saját (magyar) alapmezőjét használja.
+ */
 export async function entityTranslations(
   entity: string,
   ids: number[],
   locale: string,
 ): Promise<Record<number, Record<string, string>>> {
-  if (!locale || locale === DEFAULT_LOCALE || !ids.length) return {}
+  const overlays = overlayLocales(locale)
+  if (!overlays.length || !ids.length) return {}
+
   const rows = await prisma.translation.findMany({
-    where: { entity, entityId: { in: ids }, locale },
-    select: { entityId: true, field: true, value: true },
+    where: { entity, entityId: { in: ids }, locale: { in: overlays } },
+    select: { entityId: true, field: true, value: true, locale: true },
   })
+
   const out: Record<number, Record<string, string>> = {}
-  for (const r of rows) (out[r.entityId] ??= {})[r.field] = r.value
+  for (const want of overlays) {
+    for (const r of rows) {
+      if (r.locale !== want) continue
+      // Üres fordítást nem tekintünk találatnak: az a visszaesés értelmét
+      // vonná el – üres cím jelenne meg lefordított helyett.
+      if (!r.value) continue
+      ;(out[r.entityId] ??= {})[r.field] = r.value
+    }
+  }
   return out
 }
 

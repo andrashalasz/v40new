@@ -1,5 +1,6 @@
 import { router } from 'expo-router'
-import { ScrollView } from 'react-native'
+import { ScrollView, View } from 'react-native'
+import { useT } from '../i18n'
 import { spacing } from '../theme'
 import { Button, Card, H2, Muted } from './index'
 
@@ -10,12 +11,16 @@ import { Button, Card, H2, Muted } from './index'
  * a felhasználótól az irányítást, és kényelmetlen, ha csak körülnézne.
  */
 export function SignInPrompt({ text }: { text: string }) {
+  const t = useT()
+
   return (
     <ScrollView contentContainerStyle={{ padding: spacing.md }}>
       <Card>
-        <H2>Ehhez belépés kell</H2>
+        <H2>{t('signIn.required')}</H2>
         <Muted>{text}</Muted>
-        <Button label="Belépés" onPress={() => router.push('/belepes')} />
+        <View style={{ marginTop: spacing.md }}>
+          <Button label={t('common.signIn')} onPress={() => router.push('/belepes')} />
+        </View>
       </Card>
     </ScrollView>
   )

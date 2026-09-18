@@ -1,28 +1,35 @@
 import { useQuery } from '@tanstack/react-query'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
-import { APPOINTMENT_STATUS, type Appointment, type MeResponse } from '../../src/api/types'
+import type { Appointment, MeResponse } from '../../src/api/types'
 import { useAuth } from '../../src/auth/AuthContext'
-import { colors, formatDateTime, formatFt, radius, spacing } from '../../src/theme'
+import { useI18n, useT } from '../../src/i18n'
+import { useFormat } from '../../src/i18n/format'
+import { colors, radius, spacing } from '../../src/theme'
 import { Card, Empty, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
 import { SignInPrompt } from '../../src/ui/SignInPrompt'
 
 export default function MyBookingsScreen() {
   const { user, loading } = useAuth()
+  const { locale, t } = useI18n()
 
   const me = useQuery({
-    queryKey: ['me'],
+    queryKey: ['me', locale],
     queryFn: () => api<MeResponse>('/api/me'),
     enabled: !!user,
   })
 
   if (loading) return <Loading />
-  if (!user) return <SignInPrompt text="A foglalásaid megtekintéséhez lépj be a fiókodba." />
-  if (me.isPending) return <Loading label="Foglalások betöltése…" />
+  if (!user) return <SignInPrompt text={t('signIn.requiredBookings')} />
+  if (me.isPending) return <Loading label={t('bookings.loading')} />
   if (me.isError) {
     return (
       <View style={st.page}>
-        <ErrorBox message={(me.error as ApiError).message} onRetry={() => void me.refetch()} />
+        <ErrorBox
+          message={(me.error as ApiError).message}
+          retryLabel={t('common.retry')}
+          onRetry={() => void me.refetch()}
+        />
       </View>
     )
   }
@@ -36,17 +43,17 @@ export default function MyBookingsScreen() {
         <RefreshControl refreshing={me.isFetching} onRefresh={() => void me.refetch()} />
       }
     >
-      <H2>Közelgő</H2>
+      <H2>{t('bookings.upcoming')}</H2>
       {upcoming.length === 0 ? (
-        <Empty text="Jelenleg nincs közelgő foglalásod." />
+        <Empty text={t('bookings.noUpcoming')} />
       ) : (
         upcoming.map((a) => <AppointmentCard key={a.publicRef} appointment={a} />)
       )}
 
       <View style={{ marginTop: spacing.lg }}>
-        <H2>Korábbi</H2>
+        <H2>{t('bookings.past')}</H2>
         {past.length === 0 ? (
-          <Empty text="Még nincs lezárt kezelésed." />
+          <Empty text={t('bookings.noPast')} />
         ) : (
           past.map((a) => <AppointmentCard key={a.publicRef} appointment={a} />)
         )}
@@ -56,6 +63,9 @@ export default function MyBookingsScreen() {
 }
 
 function AppointmentCard({ appointment: a }: { appointment: Appointment }) {
+  const t = useT()
+  const fmt = useFormat()
+
   return (
     <Card>
       <View style={st.head}>
@@ -63,19 +73,22 @@ function AppointmentCard({ appointment: a }: { appointment: Appointment }) {
         <StatusBadge status={a.status} />
       </View>
 
-      <Row label="Időpont" value={formatDateTime(a.startsAt)} />
-      <Row label="Szakember" value={a.practitioner?.name ?? '—'} />
-      <Row label="Időtartam" value={`${a.service.durationMin} perc`} />
-      <Row label="Ár" value={formatFt(a.priceGross)} />
+      <Row label={t('booking.time')} value={fmt.dateTime(a.startsAt)} />
+      <Row label={t('booking.practitioner')} value={a.practitioner?.name ?? '—'} />
+      <Row label={t('booking.duration')} value={`${a.service.durationMin} ${t('common.minutes')}`} />
+      <Row label={t('bookings.price')} value={fmt.price(a.priceGross)} />
 
       <View style={{ marginTop: spacing.sm }}>
-        <Muted>Azonosító: {a.publicRef}</Muted>
+        <Muted>
+          {t('common.identifier')}: {a.publicRef}
+        </Muted>
       </View>
     </Card>
   )
 }
 
 function StatusBadge({ status }: { status: Appointment['status'] }) {
+  const t = useT()
   const tone =
     status === 'CONFIRMED' || status === 'COMPLETED'
       ? st.badgeOk
@@ -85,7 +98,7 @@ function StatusBadge({ status }: { status: Appointment['status'] }) {
 
   return (
     <View style={[st.badge, tone]}>
-      <Text style={st.badgeText}>{APPOINTMENT_STATUS[status]}</Text>
+      <Text style={st.badgeText}>{t(`status.${status}`)}</Text>
     </View>
   )
 }

@@ -25,7 +25,18 @@
       },
       "predictiveBackGestureEnabled": false
     },
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#153131",
+          "imageWidth": 220
+        }
+      ]
+    ],
     "extra": {
       "//": "A backend címe. Fejlesztéskor a gép LAN-címe kell, mert a szimulátorból/telefonról a localhost nem a Mac-et jelenti. Élesben a publikus domain.",
       "apiBaseUrl": "http://localhost:3001"

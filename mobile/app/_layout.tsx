@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar'
 import { useState } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { AuthProvider } from '../src/auth/AuthContext'
+import { I18nProvider, useI18n } from '../src/i18n'
 import { colors } from '../src/theme'
 
 /**
@@ -28,27 +29,41 @@ export default function RootLayout() {
   )
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SafeAreaProvider>
-          <StatusBar style="dark" />
-          <Stack
-            screenOptions={{
-              headerStyle: { backgroundColor: colors.tint },
-              headerTintColor: colors.text,
-              headerTitleStyle: { fontWeight: '700' },
-              contentStyle: { backgroundColor: colors.bg },
-            }}
-          >
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="belepes"
-              options={{ title: 'Belépés', presentation: 'modal' }}
-            />
-            <Stack.Screen name="foglalas/[slug]" options={{ title: 'Időpontfoglalás' }} />
-          </Stack>
-        </SafeAreaProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <I18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <SafeAreaProvider>
+            <StatusBar style="dark" />
+            <Navigation />
+          </SafeAreaProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </I18nProvider>
+  )
+}
+
+/**
+ * A navigáció külön komponens, mert a képernyők CÍME fordítandó – ahhoz pedig
+ * az I18nProvider-en BELÜL kell lennie.
+ */
+function Navigation() {
+  const { t } = useI18n()
+
+  return (
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.tint },
+        headerTintColor: colors.text,
+        headerTitleStyle: { fontWeight: '700' },
+        contentStyle: { backgroundColor: colors.bg },
+      }}
+    >
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="belepes"
+        options={{ title: t('signIn.title'), presentation: 'modal' }}
+      />
+      <Stack.Screen name="foglalas/[slug]" options={{ title: t('booking.title') }} />
+    </Stack>
   )
 }

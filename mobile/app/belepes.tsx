@@ -3,11 +3,13 @@ import { useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { ApiError } from '../src/api/client'
 import { useAuth } from '../src/auth/AuthContext'
+import { useI18n } from '../src/i18n'
 import { colors, spacing } from '../src/theme'
 import { Button, Card, Field, H1, Muted } from '../src/ui'
 
 export default function LoginScreen() {
   const { signIn } = useAuth()
+  const { locale, t } = useI18n()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -22,7 +24,11 @@ export default function LoginScreen() {
       if (router.canGoBack()) router.back()
       else router.replace('/fiok')
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'A belépés nem sikerült.')
+      // A szerver hibaüzenetei egyelőre csak magyarul léteznek, ezért idegen
+      // nyelven a saját, lefordított üzenetünket mutatjuk. Magyarul viszont a
+      // szerveré a pontosabb (megmondja, ha pl. a fiók deaktivált).
+      const fromServer = e instanceof ApiError ? e.message : ''
+      setError(locale === 'hu' && fromServer ? fromServer : t('signIn.failed'))
     } finally {
       setBusy(false)
     }
@@ -34,12 +40,12 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
-        <H1>Belépés</H1>
-        <Muted>A foglalásaid, bérleteid és dokumentumaid egy helyen.</Muted>
+        <H1>{t('signIn.title')}</H1>
+        <Muted>{t('signIn.subtitle')}</Muted>
 
         <Card style={{ marginTop: spacing.lg }}>
           <Field
-            label="E-mail"
+            label={t('booking.email')}
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -49,7 +55,7 @@ export default function LoginScreen() {
             textContentType="username"
           />
           <Field
-            label="Jelszó"
+            label={t('signIn.password')}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -67,17 +73,14 @@ export default function LoginScreen() {
           )}
 
           <Button
-            label="Belépés"
+            label={t('common.signIn')}
             onPress={() => void submit()}
             loading={busy}
             disabled={!email.trim() || !password}
           />
         </Card>
 
-        <Muted>
-          Ha foglaltál már nálunk, a fiókod automatikusan létrejött. Jelszó nélkül e-mailes belépő
-          linket is kérhetsz a weboldalon.
-        </Muted>
+        <Muted>{t('signIn.hint')}</Muted>
       </ScrollView>
     </KeyboardAvoidingView>
   )

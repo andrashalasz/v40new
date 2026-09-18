@@ -71,6 +71,45 @@ src/
 
 ---
 
+## Nyelvek
+
+Az app a **telefon nyelvét** veszi át. Ha az nem támogatott, **angol** lesz –
+nem magyar: egy külföldi vendégnek az angol legalább eséllyel érthető.
+
+| Honnan jön a szöveg | Hol szerkeszthető |
+|---|---|
+| Felület (gombok, címkék, hibák) | `src/i18n/strings.ts` (hu), `en.ts`, `de.ts` |
+| Kezelésnevek, leírások, bérletek | admin → Fordítások |
+
+A magyar tábla a teljes lista, a típus abból származik – egy hiányzó kulcs
+**fordítási hiba** lesz a `npm run typecheck`-ben, nem futásidejű meglepetés.
+
+A nyelvkódot nem kell hívásonként odaírni: az `api()` kliens minden
+lekérdezéshez hozzáteszi (`setApiLocale`). A szerver visszaesési lánca
+**kért nyelv → angol → magyar**, lásd `server/utils/i18n.ts`.
+
+Dátumot és árat mindig a `useFormat()` hookkal formázz – az a nyelvhez köti az
+alakot, az időzónát viszont fixen `Europe/Budapest`-en tartja. A rendelő
+Budapesten van: egy külföldön tartózkodó vendégnek is a budapesti 10:00-t kell
+látnia, nem a saját készüléke szerinti időt.
+
+**Ismert hiányosság:** a szerver hibaüzenetei (`statusMessage`) egyelőre csak
+magyarul léteznek. A belépés és a foglalás hibáinál ezért idegen nyelven az app
+saját, fordított üzenetét mutatja; magyarul a szerverét, mert az pontosabb.
+
+## Ikonok
+
+A `scripts/make-app-icons.mjs` (a repó gyökerében) a **weboldal logójából**
+állítja elő az ikonkészletet: a `public/logo2.png` "V40" részét vágja ki, és a
+márka sötétzöld hátterére teszi. Ha a logó változik, elég újrafuttatni:
+
+```bash
+node scripts/make-app-icons.mjs
+```
+
+A teljes "V40Vital Longevity" felirat azért nem használható app-ikonként, mert
+széles: 60×60 képponton a betűk olvashatatlanná válnának.
+
 ## Hitelesítés
 
 A weboldal sütis munkamenetet használ, ami natív appból nem járható. Az app

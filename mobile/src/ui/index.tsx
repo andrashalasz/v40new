@@ -97,12 +97,19 @@ export function Field({
   )
 }
 
-/** Töltés, üres lista és hiba – mindhárom ugyanúgy néz ki mindenhol. */
-export function Loading({ label = 'Betöltés…' }: { label?: string }) {
+/**
+ * Töltés, üres lista és hiba – mindhárom ugyanúgy néz ki mindenhol.
+ *
+ * Ezek a komponensek szándékosan NEM fordítanak maguktól: a szöveget a hívó
+ * adja át. Így ugyanaz a doboz használható a "Kezelések betöltése…" és a
+ * "Fiók betöltése…" esetére is, és nem kell hozzá minden képernyőhöz külön
+ * változat.
+ */
+export function Loading({ label }: { label?: string }) {
   return (
     <View style={s.center}>
       <ActivityIndicator color={colors.ink} />
-      <Text style={s.muted}>{label}</Text>
+      {!!label && <Text style={s.muted}>{label}</Text>}
     </View>
   )
 }
@@ -115,13 +122,21 @@ export function Empty({ text }: { text: string }) {
   )
 }
 
-export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function ErrorBox({
+  message,
+  onRetry,
+  retryLabel,
+}: {
+  message: string
+  onRetry?: () => void
+  retryLabel?: string
+}) {
   return (
     <Card>
       <Text style={s.errorText}>{message}</Text>
-      {!!onRetry && (
+      {!!onRetry && !!retryLabel && (
         <View style={{ marginTop: spacing.md }}>
-          <Button label="Újrapróbálom" variant="secondary" onPress={onRetry} />
+          <Button label={retryLabel} variant="secondary" onPress={onRetry} />
         </View>
       )}
     </Card>
