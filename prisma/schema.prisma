@@ -58,6 +58,10 @@ model User {
   loginTokens    LoginToken[]
   mobileSessions MobileSession[]
 
+  healthConsents HealthConsent[]
+  healthMetrics  HealthDailyMetric[]
+  healthSync     HealthSyncState[]
+
   medicalOpinions  MedicalOpinion[] @relation("PatientOpinions")
   authoredOpinions MedicalOpinion[] @relation("AuthoredOpinions")
   questionnaires   QuestionnaireResponse[]
@@ -962,6 +966,99 @@ model MobileSession {
   @@index([userId])
   @@index([pushToken])
   @@index([expiresAt])
+}
+
+// ======================= EGÉSZSÉGÜGYI ADATOK (Health) =======================
+
+/// A páciens hozzájárulása EGY adatkategóriához (Apple Health / Health Connect).
+///
+/// A GDPR 9. cikke szerint az egészségügyi adat különleges adat: kifejezett,
+/// célhoz kötött hozzájárulás kell hozzá, és bármikor visszavonható. Ezért nem
+/// egyetlen "engedélyezem" kapcsoló van, hanem kategóriánként külön – és a
+/// visszavonás ténye is megmarad (`revokedAt`), nem töröljük a sort.
+///
+/// Miért fontos ez a store-oknak is: az Apple és a Google is adattípusonként
+/// kéri az indoklást. Egy mindenre kiterjedő hozzáférés a leggyakoribb
+/// elutasítási ok egészségügyi alkalmazásoknál.
+model HealthConsent {
+  id       Int    @id @default(autoincrement())
+  userId   Int
+  /// Kategória kulcsa – lásd server/health/catalog.ts (pl. "cardio", "sleep").
+  category String
+
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  /// Melyik készülékről adták – panasz esetén visszakövethető.
+  platform String? // "ios" | "android"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+}
+
+/// Egy mérés NAPI összesítése.
+///
+/// SZÁNDÉKOSAN nem nyers mintát tárolunk. Egyetlen felhasználó pulzusából egy
+/// év alatt több százezer minta gyűlik; tízezer páciensnél ez milliárdos
+/// nagyságrend, amit sem tárolni, sem kirajzolni nem érdemes. Az orvosnak a
+/// napi átlag / szélsőértékek / összeg mondanak valamit, nem a másodpercenkénti
+/// érték.
+///
+/// Mellékhaszna, hogy GDPR szempontból is helyesebb: kevesebb adatot kezelünk,
+/// mint amennyi elérhető lenne (adattakarékosság, 5. cikk).
+///
+/// A `day` a RENDELŐ időzónája szerinti nap (Europe/Budapest), különben egy
+/// esti mérés a következő nap alá csúszna.
+model HealthDailyMetric {
+  id     Int      @id @default(autoincrement())
+  userId Int
+  /// Mérés kulcsa – lásd server/health/catalog.ts (pl. "heartRate", "steps").
+  metric String
+  day    DateTime @db.Date
+
+  /// Az összesítés módja a mérés természetétől függ: a lépés ÖSSZEADÓDIK, a
+  /// pulzus ÁTLAGOLÓDIK. Melyik mezőt kell nézni, azt a katalógus mondja meg.
+  sum   Float?
+  avg   Float?
+  min   Float?
+  max   Float?
+  /// Hány minta esik a napra – ebből látszik, mennyire megbízható az átlag.
+  count Int    @default(0)
+
+  /// Mértékegység a katalógusból átvéve (pl. "bpm", "kg"), a megjelenítéshez.
+  unit String
+
+  /// Honnan jött: "apple_health" | "health_connect".
+  source String
+
+  syncedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// A szinkron IDEMPOTENS: ugyanaz a nap és mérés újraküldve felülírja a
+  /// korábbi értéket, nem duplikál. Az app nyugodtan újraküldheti az utolsó
+  /// napokat, ha közben pótlólagos mérés érkezett az órából.
+  @@unique([userId, metric, day])
+  @@index([userId, day])
+  @@index([userId, metric, day])
+}
+
+/// Meddig jutott a szinkron egy készüléken – hogy ne kelljen mindig mindent
+/// újraküldeni, csak a változást.
+model HealthSyncState {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  platform String // "ios" | "android"
+
+  /// Az utolsó SIKERESEN feldolgozott nap.
+  lastSyncedDay DateTime? @db.Date
+  lastSyncAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
 }
 
 // ============================ TÖBBNYELVŰSÉG =================================

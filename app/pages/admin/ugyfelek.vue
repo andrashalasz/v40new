@@ -39,7 +39,7 @@ const d = (iso: string | null) =>
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-[#FAFAFB]">
-              <th v-for="h in ['Név', 'E-mail', 'Telefon', 'Foglalás', 'Regisztrált', 'Hírlevél', 'Létrehozva']" :key="h"
+              <th v-for="h in ['Név', 'E-mail', 'Telefon', 'Foglalás', 'Regisztrált', 'Hírlevél', 'Létrehozva', '']" :key="h"
                 class="border-b border-[#ECEDEF] py-3 px-4 text-left text-[11px] font-semibold uppercase tracking-[0.05em] text-[#667085] whitespace-nowrap">
                 {{ h }}
               </th>
@@ -64,9 +64,15 @@ const d = (iso: string | null) =>
                 </span>
               </td>
               <td class="py-3 px-4 text-[#475467] whitespace-nowrap">{{ d(c.createdAt) }}</td>
+              <td class="py-3 px-4 whitespace-nowrap">
+                <NuxtLink
+                  :to="`/admin/paciensek/${c.id}/egeszseg`"
+                  class="text-[#153131] font-medium hover:underline"
+                >Egészségügyi adatok</NuxtLink>
+              </td>
             </tr>
             <tr v-if="!items.length">
-              <td colspan="7" class="py-10 px-4 text-center text-[#667085]">Még nincs egy ügyfél sem.</td>
+              <td colspan="8" class="py-10 px-4 text-center text-[#667085]">Még nincs egy ügyfél sem.</td>
             </tr>
           </tbody>
         </table>
