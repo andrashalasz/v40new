@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Platform, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Linking, Platform, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { api, ApiError } from '../../src/api/client'
 import { useAuth } from '../../src/auth/AuthContext'
 import { isAvailable, requestPermissions } from '../../src/health/read'
+import { androidHealthStatus, requestAndroidPermissions } from '../../src/health/read.android'
 import { setConsent, syncHealth, type SyncResult } from '../../src/health/sync'
 import { colors, spacing } from '../../src/theme'
 import { Button, Card, ErrorBox, H2, Loading, Muted, Row } from '../../src/ui'
@@ -33,18 +34,58 @@ export default function HealthScreen() {
     queryFn: () => api<Category[]>('/api/mobile/health/catalog', { anonymous: true }),
   })
 
+  // Androidon a Health Connect külön alkalmazás: Android 14 előtt a Play
+  // Áruházból telepítendő. Ezt indulás után derítjük ki, hogy a felhasználót
+  // oda tudjuk irányítani ahelyett, hogy egy néma hiba fogadná.
+  const [android, setAndroid] = useState<'checking' | 'ready' | 'needs-update' | 'unavailable'>(
+    Platform.OS === 'android' ? 'checking' : 'ready',
+  )
+  useEffect(() => {
+    if (Platform.OS === 'android') void androidHealthStatus().then(setAndroid)
+  }, [])
+
   if (loading) return <Loading />
   if (!user) return <SignInPrompt text="Az egészségügyi adatok megosztásához lépj be a fiókodba." />
 
-  if (Platform.OS !== 'ios' || !isAvailable()) {
+  if (Platform.OS === 'ios' && !isAvailable()) {
     return (
       <ScrollView contentContainerStyle={st.page}>
         <Card>
           <H2>Nem érhető el</H2>
+          <Muted>Ezen a készüléken nincs Apple Health.</Muted>
+        </Card>
+      </ScrollView>
+    )
+  }
+
+  if (Platform.OS === 'android' && android !== 'ready') {
+    return (
+      <ScrollView contentContainerStyle={st.page}>
+        <Card>
+          <H2>Health Connect szükséges</H2>
           <Muted>
-            Ezen a készüléken nincs Apple Health. Az Android (Health Connect) támogatás
-            előkészítés alatt van.
+            {android === 'checking'
+              ? 'Ellenőrzés…'
+              : android === 'needs-update'
+                ? 'A Health Connect frissítésre szorul. Frissítsd a Play Áruházban, majd térj vissza.'
+                : 'Ehhez a Health Connect alkalmazás kell. Android 14-től a rendszer része, korábbi verziókon a Play Áruházból telepíthető. Ide gyűjti az adatokat a Samsung Health, a Google Fit, a Whoop és a Garmin is.'}
           </Muted>
+          {android !== 'checking' && (
+            <View style={{ marginTop: spacing.md }}>
+              <Button
+                label="Megnyitás a Play Áruházban"
+                onPress={() =>
+                  void Linking.openURL(
+                    'market://details?id=com.google.android.apps.healthdata',
+                  ).catch(() =>
+                    Linking.openURL(
+                      'https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata',
+                    ),
+                  )
+                }
+              />
+            </View>
+          )}
         </Card>
       </ScrollView>
     )
@@ -82,8 +123,13 @@ export default function HealthScreen() {
     setError('')
     setResult(null)
     try {
-      setStatus('Engedély kérése az Apple Health-től…')
-      await requestPermissions()
+      setStatus(
+        Platform.OS === 'android'
+          ? 'Engedély kérése a Health Connecttől…'
+          : 'Engedély kérése az Apple Health-től…',
+      )
+      if (Platform.OS === 'android') await requestAndroidPermissions()
+      else await requestPermissions()
 
       // Egy év: elég hosszú a trendhez és a kezelés előtti/utáni
       // összehasonlításhoz, és néhány másodperc alatt feltöltődik.

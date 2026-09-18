@@ -1,6 +1,11 @@
+import { Platform } from 'react-native'
 import { api } from '../api/client'
 import { METRICS_BY_CATEGORY } from './metrics'
 import { readQuantityMetrics, readSleep, type DailySample } from './read'
+import { readAndroidHealth } from './read.android'
+
+/** A szerver ezt tárolja az adat forrásaként (apple_health / health_connect). */
+const PLATFORM = Platform.OS === 'android' ? ('android' as const) : ('ios' as const)
 
 /**
  * A beolvasott napi értékek felküldése a szerverre.
@@ -44,11 +49,14 @@ export async function syncHealth(
 
   onProgress?.({ phase: 'reading', ratio: 0 })
 
-  const [quantities, sleep] = await Promise.all([
-    readQuantityMetrics(from, to),
-    readSleep(from, to),
-  ])
-  const samples: DailySample[] = [...quantities, ...sleep]
+  // A két platform adattára más felépítésű, de UGYANAZT a napi alakot adja
+  // vissza – innentől a feltöltés azonos.
+  const samples: DailySample[] =
+    Platform.OS === 'android'
+      ? await readAndroidHealth(from, to)
+      : (
+          await Promise.all([readQuantityMetrics(from, to), readSleep(from, to)])
+        ).flat()
 
   // A listát a kategória-táblából vezetjük le, nem külön felsorolva: így egy
   // új mérés hozzáadásakor nem marad ki innen.
@@ -64,7 +72,7 @@ export async function syncHealth(
     const chunk = samples.slice(i, i + BATCH)
     const res = await api<{ written: number; rejectedCount: number }>(
       '/api/mobile/health/sync',
-      { body: { platform: 'ios', samples: chunk } },
+      { body: { platform: PLATFORM, samples: chunk } },
     )
     written += res.written
     rejected += res.rejectedCount
@@ -79,6 +87,6 @@ export async function syncHealth(
 /** Hozzájárulás állítása egy kategóriához. */
 export function setConsent(category: string, granted: boolean) {
   return api<{ category: string; granted: boolean }>('/api/mobile/health/consent', {
-    body: { category, granted, platform: 'ios' },
+    body: { category, granted, platform: PLATFORM },
   })
 }

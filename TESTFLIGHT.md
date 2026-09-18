@@ -1,4 +1,4 @@
-# Kipróbálás a saját Apple Health adataiddal
+# Kipróbálás a saját egészségügyi adataiddal (iOS + Android)
 
 Két út van. A **helyi Docker** a gyorsabb (nem kell szervert frissíteni), a
 **teszt aldomén** a kényelmesebb (bárhonnan működik, nem csak otthoni wifin).
@@ -111,9 +111,12 @@ A végén kapsz egy linket és egy QR-kódot; a telefonról megnyitva letölti �
 telepíti az APK-t. (Androidon engedélyezni kell az „ismeretlen forrásból"
 telepítést.) **Időigény: 10–15 perc.**
 
-> **Az Androidon az egészségügyi rész még nem működik.** A Health Connect
-> integráció nincs kész – az „Egészség" fül ezt ki is írja. Minden más
-> (foglalás, bérletek, fiók, háromnyelvűség) működik, tehát átnézésre jó.
+**Androidon az egészségügyi rész is működik**, a **Health Connecten** keresztül.
+Oda ír a Samsung Health, a Google Fit, a Whoop, az Oura és a Garmin is – külön
+Samsung-integráció nem kell.
+
+A Health Connect Android 14-től a rendszer része; korábbi verziókon a Play
+Áruházból telepítendő. Ha hiányzik, az app kiírja és odairányít.
 
 ---
 
@@ -124,10 +127,11 @@ telepítést.) **Időigény: 10–15 perc.**
    be a kiszolgáló címét (`http://<LAN-IP>:3001`), majd lépj be.
 3. **Egészség** fül → kapcsold be a négy adatkört. Ez a *mi* hozzájárulásunk,
    még nem az Apple-é.
-4. **Adatok szinkronizálása** → ekkor jön fel az **Apple Health engedélykérő
-   képernyője**. A lista tetején van egy **„Bekapcsolás mind"** kapcsoló –
-   érdemes azt használni, mert amit itt kihagysz, arra nem lesz adat, és
-   utólag csak a Beállításokban kapcsolható vissza.
+4. **Adatok szinkronizálása** → ekkor jön fel a rendszer engedélykérője
+   (iOS: Apple Health, Android: Health Connect). A lista tetején van egy
+   **„Bekapcsolás mind"** kapcsoló – érdemes azt használni, mert amit itt
+   kihagysz, arra nem lesz adat, és utólag csak a rendszerbeállításokban
+   kapcsolható vissza.
 5. A szinkron az elmúlt **egy évet** tölti fel, naponta összesítve. A végén
    kiírja, mely mérésekhez nem talált adatot.
 
@@ -140,16 +144,23 @@ Böngészőben a **/admin** → belépés → **Ügyfelek** → a saját sorodn�
 
 ## Amire számíts
 
-**Honnan jön az adat:** a Whoop, az Oura, a Garmin és az Apple Watch is az
-Apple Healthbe ír, tehát mindegyik automatikusan bekerül – nem kell hozzá külön
-integráció. Ha **több eszköz** is rögzíti ugyanazt az éjszakát, az alvásidő nem
-duplázódik: a lefedett időt mérjük, nem a szakaszok összegét.
+**Honnan jön az adat:** a Whoop, az Oura, a Garmin, az Apple Watch és a Samsung
+Health is a rendszer egészségügyi adattárába ír (iOS: Apple Health, Android:
+Health Connect) – mindegyik automatikusan bekerül, külön integráció nélkül.
+
+Ha **több eszköz** is rögzíti ugyanazt az éjszakát, az alvásidő nem duplázódik:
+a lefedett időt mérjük, nem a szakaszok összegét.
 
 **Óra vagy gyűrű nélkül** a pulzus, a HRV és az alvás üres marad. Telefonnal
 biztosan van lépésszám, távolság és állási idő, plusz amit kézzel vagy
 okosmérleggel rögzítettél (testsúly, BMI, testzsír).
 
-**A szimulátor nem jó erre**: ott a Health adattár üres.
+**A szimulátor/emulátor nem jó erre**: ott az adattár üres.
+
+**Egy különbség a két platform között:** a Health Connect kevesebb mérést tud
+natívan napi bontásban összesíteni, mint az Apple Health. A HRV-t, a VO₂max-ot,
+a testzsírt és az izomtömeget ezért Androidon nyers rekordokból számoljuk – az
+eredmény ugyanaz, csak a mögöttes út más.
 
 ## Ha valami nem működik
 
