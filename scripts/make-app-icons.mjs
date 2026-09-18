@@ -158,7 +158,18 @@ const androidMonochrome = await mark({
 })
 
 const files = {
-  'icon.png': icon,
+  // Az App Store ikon NEM tartalmazhat alfa-csatornát: az Apple ITMS-90717
+  // hibával utasítja vissza ("Invalid App Store Icon"), és a feltöltés után
+  // az App Store Connectben üresen marad az ikon helye.
+  //
+  // A `flatten` a (teljesen átlátszatlan) képet háromcsatornássá alakítja. A
+  // háttérszín csak biztonsági tartalék: a jel amúgy is kitölti a teljes
+  // négyzetet, tehát látható különbség nincs.
+  //
+  // FONTOS: ez CSAK erre a fájlra vonatkozik. Az Android adaptív rétegeknek
+  // és az indítóképnek KELL az átlátszóság, különben tömör négyzetként
+  // jelennének meg.
+  'icon.png': await sharp(icon).flatten({ background: INK }).png().toBuffer(),
   'android-icon-foreground.png': androidForeground,
   'android-icon-background.png': await solidBg({ ...INK, alpha: 1 }),
   'android-icon-monochrome.png': androidMonochrome,
