@@ -1,4 +1,3 @@
-version: '3.9'
 
 services:
   mysql:
@@ -15,11 +14,51 @@ services:
       - "3306:3306"
     # A --bind-address=0.0.0.0 segít, hogy a konténeren kívülről is elérd
     command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
+    # Az app csak akkor indul, ha az adatbázis TÉNYLEG fogad kapcsolatot. A
+    # puszta `depends_on` csak a konténer elindulását várja meg, a MySQL viszont
+    # azután még 10-20 másodpercig inicializál – enélkül az app első
+    # lekérdezései hibára futnának.
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     volumes:
       - mysql_data:/var/lib/mysql # Ne relatív mappát használj, ha lehet, a teljesítmény miatt
       # Induláskor egyszer lefutó SQL (csak üres adatkönyvtárnál): fejlesztői
       # jogosultságok, hogy a `prisma migrate dev` árnyék-adatbázisa működjön.
       - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - devnet
+
+  # Az alkalmazás. Azért van a compose-ban, hogy a telefonról (TestFlight)
+  # elérhető legyen a gép LAN-címén – a `npm run dev` is működne, de a Docker
+  # egy paranccsal indítja a teljes rendszert, és azonos módon fut minden gépen.
+  #
+  # Indítás:  docker compose up -d --build
+  # Adatbázis feltöltése (első alkalommal):
+  #   docker compose exec app npx prisma migrate deploy
+  #   docker compose exec app npx prisma db seed
+  #   docker compose exec app npm run content:import
+  app:
+    build: .
+    container_name: v40_app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # A konténerből a MySQL nem "localhost", hanem a szolgáltatás neve.
+      DATABASE_URL: mysql://devuser:devpass@mysql:3306/v40
+      PORT: 3001
+      # A többi beállítás a .env-ből jön (munkamenet-titok, admin adatok).
+    env_file:
+      - .env
+    ports:
+      # 0.0.0.0: a konténer a gép MINDEN hálózati címén hallgat, nem csak a
+      # localhoston – enélkül a telefon nem érné el a Mac LAN-címén.
+      - "0.0.0.0:3001:3001"
     networks:
       - devnet
 

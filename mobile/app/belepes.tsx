@@ -6,6 +6,7 @@ import { useAuth } from '../src/auth/AuthContext'
 import { useI18n } from '../src/i18n'
 import { colors, spacing } from '../src/theme'
 import { Button, Card, Field, H1, Muted } from '../src/ui'
+import { ServerSetting } from '../src/ui/ServerSetting'
 
 export default function LoginScreen() {
   const { signIn } = useAuth()
@@ -81,6 +82,12 @@ export default function LoginScreen() {
         </Card>
 
         <Muted>{t('signIn.hint')}</Muted>
+
+        {/* Teszt-időszakra: a kiszolgáló címe itt írható át, hogy egy változó
+            LAN-cím miatt ne kelljen új buildet készíteni. */}
+        <View style={{ marginTop: spacing.lg }}>
+          <ServerSetting />
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   )

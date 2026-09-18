@@ -1,6 +1,7 @@
 import Constants from 'expo-constants'
 import * as Device from 'expo-device'
 import { Platform } from 'react-native'
+import { getBaseUrl } from './baseUrl'
 import { clearTokens, loadTokens, saveTokens, type Tokens } from './tokens'
 
 /**
@@ -17,11 +18,6 @@ import { clearTokens, loadTokens, saveTokens, type Tokens } from './tokens'
  *     azaz kiléptetné a felhasználót az összes eszközéről.
  *  4. Ha a frissítés is elbukik, kijelentkeztet.
  */
-
-const BASE_URL = String(
-  (Constants.expoConfig?.extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl ??
-    'http://localhost:3001',
-).replace(/\/$/, '')
 
 export const deviceInfo = () => ({
   platform: Platform.OS === 'ios' ? ('ios' as const) : ('android' as const),
@@ -114,7 +110,7 @@ async function refreshTokens(): Promise<Tokens | null> {
     if (!current) return null
 
     try {
-      const res = await fetch(`${BASE_URL}/api/mobile/auth/refresh`, {
+      const res = await fetch(`${getBaseUrl()}/api/mobile/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: current.refreshToken, device: deviceInfo() }),
@@ -146,7 +142,7 @@ type Options = {
 
 export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   const method = opts.method ?? (opts.body !== undefined ? 'POST' : 'GET')
-  const url = `${BASE_URL}${method === 'GET' ? withLocale(path) : path}`
+  const url = `${getBaseUrl()}${method === 'GET' ? withLocale(path) : path}`
 
   const send = async (token?: string): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' }

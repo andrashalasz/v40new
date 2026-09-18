@@ -13,7 +13,12 @@
       "bundleIdentifier": "hu.v40vital.app",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocalNetworkUsageDescription": "A V40 Vital a helyi hálózaton futó fejlesztői kiszolgálóhoz csatlakozik a teszteléshez.",
+        "NSAppTransportSecurity": {
+          "//": "CSAK a helyi hálózat titkosítatlan elérése, TESZTELÉSHEZ. Az iOS alapból minden HTTP-t tilt. A magánhálózati kivétel szűk: nem nyitja meg az internetes HTTP-forgalmat. Éles kiadás előtt (HTTPS-es szerverre állva) ez a blokk TÖRLENDŐ – az App Review a tág kivételekre magyarázatot kér.",
+          "NSAllowsLocalNetworking": true
+        }
       },
       "entitlements": {
         "com.apple.developer.healthkit": true,
@@ -51,8 +56,8 @@
       ]
     ],
     "extra": {
-      "//": "A backend címe. A TestFlight-os buildbe BELEÉG: megváltoztatásához új build kell. Fejlesztéskor írd át a géped LAN-címére (http://192.168.x.x:3001).",
-      "apiBaseUrl": "https://v40.orc.hu"
+      "//": "A backend alapértelmezett címe. A TestFlight-os buildbe beleég, DE az appban (Belépés képernyő alján) futásidőben átírható – így egy változó LAN-cím miatt nem kell új build.",
+      "apiBaseUrl": "http://10.61.10.230:3001"
     }
   }
 }

@@ -6,6 +6,7 @@ import {
   CategoryValueSleepAnalysis,
 } from '@kingstinct/react-native-healthkit'
 import { QUANTITY_METRICS, ALL_READ_IDENTIFIERS, SLEEP_IDENTIFIER } from './metrics'
+import { coveredHours, type Interval } from './intervals'
 
 /**
  * APPLE HEALTH BEOLVASÁS
@@ -139,7 +140,7 @@ const ASLEEP_VALUES = new Set<number>([
 /**
  * Alvás: hossz, mélyalvás és REM, éjszakánként.
  *
- * Két dolgot kell jól csinálni, és mindkettő könnyen elromlik:
+ * Három dolgot kell jól csinálni, és mindhárom könnyen elromlik:
  *
  *  1. Az „inBed" (ágyban töltött idő) NEM alvás. Ha beleszámítanánk, egy
  *     olvasgatással töltött óra alvásidőnek látszana.
@@ -148,6 +149,12 @@ const ASLEEP_VALUES = new Set<number>([
  *     REGGELHEZ rendeljük: az orvos „szeptember 18-i alvás" alatt a 17-ről
  *     18-ra virradó éjszakát érti. Naptári napra vágva minden éjszaka két
  *     félbevágott darabként jelenne meg.
+ *
+ *  3. TÖBB FORRÁS is írhat ugyanarról az éjszakáról: egy Whoop, egy Apple
+ *     Watch, egy Oura és maga az iPhone alvásészlelése egymástól függetlenül.
+ *     A szakaszok hosszát összeadva két forrásnál 14 óra alvás jönne ki egy
+ *     7 órás éjszakára. Ezért nem összeadunk, hanem a LEFEDETT időt mérjük
+ *     (lásd intervals.ts) – így akárhány forrás esetén helyes az eredmény.
  */
 export async function readSleep(from: Date, to: Date): Promise<DailySample[]> {
   let samples: readonly { startDate: Date; endDate: Date; value: number }[] = []
@@ -161,25 +168,28 @@ export async function readSleep(from: Date, to: Date): Promise<DailySample[]> {
     return []
   }
 
-  // Éjszakánként (a reggel dátuma szerint) gyűjtjük az órákat.
-  const byNight = new Map<string, { total: number; deep: number; rem: number }>()
+  // Éjszakánként (a reggel dátuma szerint) gyűjtjük a SZAKASZOKAT – nem az
+  // órákat. Az összevonás csak utána következik.
+  type Night = { total: Interval[]; deep: Interval[]; rem: Interval[] }
+  const byNight = new Map<string, Night>()
 
   for (const s of samples) {
     if (!ASLEEP_VALUES.has(s.value)) continue
 
-    const start = new Date(s.startDate)
-    const end = new Date(s.endDate)
-    const hours = (end.getTime() - start.getTime()) / 3_600_000
-    if (!Number.isFinite(hours) || hours <= 0) continue
+    const start = new Date(s.startDate).getTime()
+    const end = new Date(s.endDate).getTime()
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
 
-    // Az éjszakát a VÉGE (a reggel) azonosítja. A délelőtt 10 előtt véget érő
-    // alvás az aznapi éjszaka; a későbbi (nappali alvás) marad a saját napján.
-    const night = dayKey(end)
+    // Az éjszakát a VÉGE (a reggel) azonosítja. A délelőtt véget érő alvás az
+    // aznapi éjszakához tartozik.
+    const night = dayKey(new Date(end))
 
-    const acc = byNight.get(night) ?? { total: 0, deep: 0, rem: 0 }
-    acc.total += hours
-    if (s.value === CategoryValueSleepAnalysis.asleepDeep) acc.deep += hours
-    if (s.value === CategoryValueSleepAnalysis.asleepREM) acc.rem += hours
+    const acc = byNight.get(night) ?? { total: [], deep: [], rem: [] }
+    const interval: Interval = { start, end }
+
+    acc.total.push(interval)
+    if (s.value === CategoryValueSleepAnalysis.asleepDeep) acc.deep.push(interval)
+    if (s.value === CategoryValueSleepAnalysis.asleepREM) acc.rem.push(interval)
     byNight.set(night, acc)
   }
 
@@ -187,9 +197,13 @@ export async function readSleep(from: Date, to: Date): Promise<DailySample[]> {
   const round = (n: number) => Math.round(n * 100) / 100
 
   for (const [day, v] of byNight) {
-    if (v.total > 0) out.push({ metric: 'sleepDuration', day, sum: round(v.total), count: 1 })
-    if (v.deep > 0) out.push({ metric: 'sleepDeep', day, sum: round(v.deep), count: 1 })
-    if (v.rem > 0) out.push({ metric: 'sleepRem', day, sum: round(v.rem), count: 1 })
+    const total = coveredHours(v.total)
+    const deep = coveredHours(v.deep)
+    const rem = coveredHours(v.rem)
+
+    if (total > 0) out.push({ metric: 'sleepDuration', day, sum: round(total), count: 1 })
+    if (deep > 0) out.push({ metric: 'sleepDeep', day, sum: round(deep), count: 1 })
+    if (rem > 0) out.push({ metric: 'sleepRem', day, sum: round(rem), count: 1 })
   }
 
   return out

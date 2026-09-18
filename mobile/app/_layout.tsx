@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Stack } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { loadBaseUrl } from '../src/api/baseUrl'
 import { AuthProvider } from '../src/auth/AuthContext'
 import { I18nProvider, useI18n } from '../src/i18n'
 import { colors } from '../src/theme'
@@ -27,6 +28,16 @@ export default function RootLayout() {
         },
       }),
   )
+
+  // A mentett szerver-cím betöltése. Amíg fut, NEM renderelünk semmit: ha a
+  // gyerekek előbb indítanák a lekérdezéseiket, azok még a beépített (rossz)
+  // címre mennének, és egy hálózati hiba villanna fel indításkor.
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    loadBaseUrl().finally(() => setReady(true))
+  }, [])
+
+  if (!ready) return null
 
   return (
     <I18nProvider>
