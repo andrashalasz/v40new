@@ -32,6 +32,7 @@ export default function TabsLayout() {
         name="foglalasaim"
         options={{ title: t('tab.bookings'), tabBarIcon: icon('▤') }}
       />
+      <Tabs.Screen name="egeszseg" options={{ title: 'Egészség', tabBarIcon: icon('♥') }} />
       <Tabs.Screen name="fiok" options={{ title: t('tab.account'), tabBarIcon: icon('☺') }} />
     </Tabs>
   )

@@ -238,15 +238,6 @@ export const CATEGORIES: Category[] = [
         ios: 'HKCategoryTypeIdentifierSleepAnalysis',
         android: 'SleepSession',
       },
-      {
-        key: 'sleepingHeartRate',
-        label: 'Alvás közbeni pulzus',
-        unit: 'bpm',
-        aggregation: 'average',
-        chart: 'line',
-        ios: 'HKQuantityTypeIdentifierHeartRate',
-        android: 'HeartRate',
-      },
     ],
   },
 

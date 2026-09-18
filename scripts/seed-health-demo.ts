@@ -116,7 +116,6 @@ async function main() {
     push('sleepDuration', 'óra', { sum: Number(sleep.toFixed(1)) })
     push('sleepDeep', 'óra', { sum: Number((sleep * (0.13 + r() * 0.06)).toFixed(1)) })
     push('sleepRem', 'óra', { sum: Number((sleep * (0.18 + r() * 0.07)).toFixed(1)) })
-    push('sleepingHeartRate', 'bpm', { avg: Math.round(rhr - 4 + r() * 4) })
 
     // --- Testösszetétel: nem naponta mér mindenki ---
     if (r() < 0.35) {

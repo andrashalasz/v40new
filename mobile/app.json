@@ -11,8 +11,13 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "hu.v40vital.app",
+      "buildNumber": "1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.access": []
       }
     },
     "android": {
@@ -35,11 +40,19 @@
           "backgroundColor": "#153131",
           "imageWidth": 220
         }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "A V40 Vital az alvási, mozgási, szív- és testösszetételi adataidat mutatja meg a kezelőorvosodnak, hogy a kezelésedet a valós állapotodhoz igazítsa. Bármikor visszavonhatod.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
       ]
     ],
     "extra": {
-      "//": "A backend címe. Fejlesztéskor a gép LAN-címe kell, mert a szimulátorból/telefonról a localhost nem a Mac-et jelenti. Élesben a publikus domain.",
-      "apiBaseUrl": "http://localhost:3001"
+      "//": "A backend címe. A TestFlight-os buildbe BELEÉG: megváltoztatásához új build kell. Fejlesztéskor írd át a géped LAN-címére (http://192.168.x.x:3001).",
+      "apiBaseUrl": "https://v40.orc.hu"
     }
   }
 }
