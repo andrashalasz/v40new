@@ -6,15 +6,21 @@ import { dirname, join } from 'node:path'
 /**
  * Az alkalmazás ikonkészletének előállítása a WEBOLDAL logójából.
  *
- * Miért monogram és nem a teljes logó: a `public/logo2.png` egy széles felirat
- * ("V40Vital Longevity"). Négyzetes app-ikonná zsugorítva a betűk 60x60
- * képponton olvashatatlanná válnának. A kezdőhomokban ezért a "V40" rész
- * szerepel – UGYANAZOKKAL a betűformákkal, tehát nem új arculat, hanem a
- * meglévő logó kivágása.
+ * A jel: a "V40" felirat a márka saját betűivel, alatta egy pulzusvonal. A
+ * felirat azonosítja a márkát, a görbe elmondja, miről szól az app – ettől
+ * nem néz ki bármelyik üzleti alkalmazásnak.
  *
- * A fekete feliratot maszkként használjuk, és a márka krém színével rajzoljuk
- * újra a sötétzöld háttéren – így az ikon a sötét és világos kezdőképernyőn is
- * kontrasztos.
+ * Miért nem a teljes logó: a `public/logo2.png` egy széles felirat
+ * ("V40Vital Longevity"). Négyzetes app-ikonná zsugorítva a betűk 48
+ * képponton olvashatatlanná válnának. Ezért csak a "V40" rész szerepel –
+ * UGYANAZOKKAL a betűformákkal, tehát nem új arculat, hanem a meglévő logó
+ * kivágása.
+ *
+ * Amire a méretezésnél figyelünk:
+ *   - 48 képponton is felismerhető (ekkora a Beállítások listájában),
+ *   - vastag vonalak: a vékony vonal kicsiben eltűnik vagy elmosódik,
+ *   - az Android adaptív ikonnál a külső ~33% bármikor levágható, ezért ott
+ *     minden kisebb és beljebb van.
  *
  * Futtatás:  node scripts/make-app-icons.mjs
  */
@@ -26,46 +32,34 @@ const OUT = join(ROOT, 'mobile', 'assets')
 /** A logó "V40" részének pontos helye a public/logo2.png-ben (mérve). */
 const CROP = { left: 34, top: 322, width: 340, height: 139 }
 
-/** Márkaszínek – azonosak a weboldaléval (app/src/theme.ts). */
+/** Márkaszínek – azonosak a weboldaléval (mobile/src/theme.ts). */
 const INK = { r: 0x15, g: 0x31, b: 0x31 } // #153131 sötétzöld
 const CREAM = { r: 0xf4, g: 0xf4, b: 0xf0 } // #F4F4F0 krém
+const MINT = 'rgb(229,247,249)' // #E5F7F9
 
-const SIZE = 1024
+const S = 1024
 
 /**
- * A kivágott felirat alfa-maszkja.
+ * A kivágott felirat adott színnel, átlátszó háttéren.
  *
  * A logó fekete betű fehér alapon. Szürkeárnyalatossá alakítva és megfordítva
- * a betűkből lesz "átlátszatlan", a háttérből "átlátszó" – pont egy maszk.
- * A `logoWidth` a végleges ikonon belüli szélesség.
+ * a betűkből lesz "átlátszatlan", a háttérből "átlátszó". A színt
+ * KÉPPONTONKÉNT rajzoljuk ki, a maszk értékét alfaként használva: egycsatornás
+ * maszkot `blend: 'dest-in'`-nel átadni nem működne, mert annak a műveletnek a
+ * forrás ALFÁJA számít, egy szürkeárnyalatos képnek viszont nincs alfája –
+ * tömör téglalapot kapnánk a betűk helyett.
  */
-async function letterMask(logoWidth) {
-  return sharp(join(ROOT, 'public', 'logo2.png'))
+async function wordmark(width, color = CREAM) {
+  const { data: mask, info } = await sharp(join(ROOT, 'public', 'logo2.png'))
     .extract(CROP)
     .greyscale()
     .negate()
-    .resize({ width: logoWidth, fit: 'inside' })
-    // Nyers képpontok kellenek, nem PNG: a maszkot a `composite` raw
-    // bemenetként kapja meg, kódolt formátumnál a méret nem stimmelne.
+    .resize({ width, fit: 'inside' })
     .raw()
     .toBuffer({ resolveWithObject: true })
-}
 
-/**
- * Egyszínű felirat átlátszó háttéren.
- *
- * A színt képpontonként RAJZOLJUK ki, a maszk értékét alfaként használva.
- * Egycsatornás maszkot `blend: 'dest-in'`-nel átadni nem működne: annak a
- * műveletnek a forrás ALFÁJA számít, egy szürkeárnyalatos képnek viszont
- * nincs alfája, így mindenhol átlátszatlannak látszana – tömör téglalapot
- * kapnánk a betűk helyett.
- */
-async function wordmark(logoWidth, color) {
-  const { data: mask, info } = await letterMask(logoWidth)
-  const { width, height } = info
-
-  const rgba = Buffer.alloc(width * height * 4)
-  for (let i = 0; i < width * height; i++) {
+  const rgba = Buffer.alloc(info.width * info.height * 4)
+  for (let i = 0; i < info.width * info.height; i++) {
     rgba[i * 4] = color.r
     rgba[i * 4 + 1] = color.g
     rgba[i * 4 + 2] = color.b
@@ -73,76 +67,106 @@ async function wordmark(logoWidth, color) {
   }
 
   return {
-    data: await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer(),
-    info: { width, height },
+    png: await sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } })
+      .png()
+      .toBuffer(),
+    width: info.width,
+    height: info.height,
   }
 }
 
-const creamWordmark = (logoWidth) => wordmark(logoWidth, CREAM)
+const gradientBg = () =>
+  sharp(
+    Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0.3" y2="1">
+        <stop offset="0" stop-color="#1D4444"/><stop offset="1" stop-color="#0D2121"/>
+      </linearGradient></defs>
+      <rect width="${S}" height="${S}" fill="url(#g)"/>
+    </svg>`),
+  )
+    .png()
+    .toBuffer()
 
-/** Ikon: sötétzöld négyzet, közepén a krém "V40". */
-async function icon(logoRatio, background) {
-  const logoWidth = Math.round(SIZE * logoRatio)
-  const { data: wordmark, info } = await creamWordmark(logoWidth)
+const solidBg = (color) =>
+  sharp({ create: { width: S, height: S, channels: 4, background: color } })
+    .png()
+    .toBuffer()
 
-  return sharp({
-    create: { width: SIZE, height: SIZE, channels: 4, background },
-  })
+const transparentBg = () => solidBg({ r: 0, g: 0, b: 0, alpha: 0 })
+
+/**
+ * A pulzusvonal SVG-ként.
+ *
+ * A `scale` az egész jelet kicsinyíti a középpont körül – az Android adaptív
+ * ikonhoz kell, ahol a széleket levághatják. A vonalvastagság is vele skálázik,
+ * különben kicsiben aránytalanul vastag maradna.
+ */
+const pulse = (scale = 1, dy = 0, color = MINT) => {
+  const w = Math.round(46 * scale)
+  return Buffer.from(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}">
+      <g transform="translate(512 ${512 + dy}) scale(${scale}) translate(-512 -512)">
+        <path d="M 250 730 L 400 730 L 452 655 L 530 815 L 585 730 L 774 730"
+          fill="none" stroke="${color}" stroke-width="${w}"
+          stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>`)
+}
+
+/** A teljes jel: felirat + pulzus, a megadott háttéren. */
+async function mark({ background, textScale, glyphColor, pulseColor, offsetY = -70, scale = 1 }) {
+  const letters = await wordmark(Math.round(S * textScale), glyphColor)
+
+  return sharp(background)
     .composite([
       {
-        input: wordmark,
-        left: Math.round((SIZE - info.width) / 2),
-        top: Math.round((SIZE - info.height) / 2),
+        input: letters.png,
+        left: Math.round((S - letters.width) / 2),
+        top: Math.round((S - letters.height) / 2 + offsetY * scale),
       },
+      { input: pulse(scale, 0, pulseColor), left: 0, top: 0 },
     ])
-    .png()
-    .toBuffer()
-}
-
-/** Egyszínű négyzet. */
-function solid(color) {
-  return sharp({ create: { width: SIZE, height: SIZE, channels: 4, background: color } })
-    .png()
-    .toBuffer()
-}
-
-/** Fehér felirat átlátszó háttéren – az Android monokróm (téma) ikonjához. */
-async function monochrome(logoRatio) {
-  const { data: white, info } = await wordmark(
-    Math.round(SIZE * logoRatio),
-    { r: 255, g: 255, b: 255 },
-  )
-
-  return sharp({
-    create: { width: SIZE, height: SIZE, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-  })
-    .composite([{ input: white, left: Math.round((SIZE - info.width) / 2), top: Math.round((SIZE - info.height) / 2) }])
     .png()
     .toBuffer()
 }
 
 await mkdir(OUT, { recursive: true })
 
-const opaque = { ...INK, alpha: 1 }
-const transparent = { r: 0, g: 0, b: 0, alpha: 0 }
+// --- iOS és általános app-ikon ----------------------------------------------
+const icon = await mark({
+  background: await gradientBg(),
+  textScale: 0.56,
+})
+
+// --- Android adaptív ikon ---------------------------------------------------
+// A rendszer körre vagy négyzetre is vághatja, és a külső harmad eltűnhet:
+// ezért a jel 0.66-szoros, hogy biztosan a biztonságos zónában maradjon.
+const androidForeground = await mark({
+  background: await transparentBg(),
+  textScale: 0.56 * 0.66,
+  scale: 0.66,
+})
+
+// A monokróm (téma) ikon egyetlen színnel dolgozik: a rendszer színezi át.
+const androidMonochrome = await mark({
+  background: await transparentBg(),
+  textScale: 0.56 * 0.66,
+  scale: 0.66,
+  glyphColor: { r: 255, g: 255, b: 255 },
+  pulseColor: 'rgb(255,255,255)',
+})
 
 const files = {
-  // iOS és általános app-ikon. A felirat a szélesség 62%-a: marad levegő,
-  // és a lekerekített sarkok nem vágnak bele.
-  'icon.png': await icon(0.62, opaque),
+  'icon.png': icon,
+  'android-icon-foreground.png': androidForeground,
+  'android-icon-background.png': await solidBg({ ...INK, alpha: 1 }),
+  'android-icon-monochrome.png': androidMonochrome,
 
-  // Android adaptív ikon: a rendszer a képet levághatja körre vagy
-  // négyzetre, és a külső ~33% bármikor eltűnhet. Ezért a felirat kisebb,
-  // hogy biztosan a biztonságos zónában maradjon.
-  'android-icon-foreground.png': await icon(0.44, transparent),
-  'android-icon-background.png': await solid(opaque),
-  'android-icon-monochrome.png': await monochrome(0.44),
+  // Indítókép: átlátszó háttéren a jel, a hátteret az app.json adja.
+  'splash-icon.png': await mark({ background: await transparentBg(), textScale: 0.5, scale: 0.9 }),
 
-  // Indítókép: átlátszó háttéren a felirat, a háttérszínt az app.json adja.
-  'splash-icon.png': await icon(0.55, transparent),
-
-  // Kedvenc ikon a fejlesztői webes nézethez.
-  'favicon.png': await sharp(await icon(0.62, opaque)).resize(48).png().toBuffer(),
+  'favicon.png': await sharp(icon).resize(48).png().toBuffer(),
 }
 
 for (const [name, buffer] of Object.entries(files)) {
